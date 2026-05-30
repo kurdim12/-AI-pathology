@@ -1,0 +1,11 @@
+# Naseej dependencies. Built on PyTorch + torchvision.
+# For a CPU-only install, prefer the PyTorch CPU wheels:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.23.0
+pillow>=9.0.0
+scikit-learn>=1.1.0
+matplotlib>=3.5.0
+gradio>=4.0.0
+tqdm>=4.64.0
