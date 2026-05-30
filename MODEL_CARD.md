@@ -58,6 +58,11 @@ Produced by `python -m src.evaluate` (also writes a confusion matrix to
   highest threshold that still guarantees a target malignant recall (default
   95%) and writes `outputs/thresholds.json`, which inference/triage/API/demo
   pick up automatically. The `config.py` defaults are only a starting point.
+- **Probability calibration:** training fits a temperature scalar on validation
+  (`src/temperature.py`) so confidences are meaningful and triage thresholds are
+  less brittle. For deployment to phone-capture conditions, prefer
+  robustness-aware thresholds (`src.calibrate --robust <severity>`), which hold
+  the sensitivity floor under simulated field degradation.
 - A false "ROUTINE" on a malignant slide is the most harmful error — hence the
   recall-prioritised loss and an explicit `REVIEW` band, but residual risk
   remains.

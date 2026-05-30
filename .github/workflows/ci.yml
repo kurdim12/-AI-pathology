@@ -37,7 +37,7 @@ jobs:
 
       - name: Verify modules import
         run: |
-          python -c "import config; from src import model, data, gradcam, inference, triage, train, evaluate, calibrate, robustness, report, phone_sim; print('imports ok')"
+          python -c "import config; from src import model, data, gradcam, inference, triage, train, evaluate, calibrate, robustness, report, phone_sim, temperature; print('imports ok')"
 
       - name: Run test suite
         run: python -m pytest tests/ -q
@@ -48,6 +48,7 @@ jobs:
           python -m src.train --no-pretrained --epochs 1 --backbone resnet18
           python -m src.evaluate
           python -m src.calibrate --target-sensitivity 0.95
+          python -m src.calibrate --target-sensitivity 0.95 --robust 0.5
           python -m src.robustness --severities 0,0.5,1.0
           python -m src.triage data/train --csv outputs/worklist.csv
           test -f outputs/thresholds.json && test -f outputs/worklist.csv && test -f outputs/robustness.json && echo "pipeline ok"

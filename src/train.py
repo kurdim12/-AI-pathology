@@ -247,12 +247,50 @@ def main(args: argparse.Namespace | None = None) -> None:
     if state["best_auc"] < 0:
         print("[naseej] warning: no checkpoint saved (could not compute a valid AUC).")
     else:
+        # Fit temperature on the best checkpoint so stored probabilities are
+        # calibrated (fixes overconfidence -> less brittle triage thresholds).
+        temp_info = _fit_and_store_temperature(val_loader, device)
+
         summary = {"best_val_auc": state["best_auc"], "best_epoch": state["best_epoch"],
-                   "backbone": config.BACKBONE, "epochs_run": global_epoch}
+                   "backbone": config.BACKBONE, "epochs_run": global_epoch,
+                   **(temp_info or {})}
         with open(os.path.join(config.OUTPUT_DIR, "train_summary.json"), "w") as fh:
             json.dump(summary, fh, indent=2)
         print(f"[naseej] done. best val AUC={state['best_auc']:.4f} "
               f"(epoch {state['best_epoch']}). Run `python -m src.evaluate`.")
+
+
+@torch.no_grad()
+def _collect_logits(model, loader, device):
+    """Gather raw (pre-softmax) logits and labels over a loader."""
+    model.eval()
+    logits_all, labels_all = [], []
+    for images, labels in loader:
+        logits_all.append(model(images.to(device)).cpu())
+        labels_all.append(labels)
+    return torch.cat(logits_all), torch.cat(labels_all)
+
+
+def _fit_and_store_temperature(val_loader, device) -> dict | None:
+    """Reload the best checkpoint, fit temperature on val, and re-save it."""
+    from src.temperature import calibration_report, fit_temperature
+
+    if not os.path.exists(config.BEST_MODEL_PATH):
+        return None
+
+    checkpoint = torch.load(config.BEST_MODEL_PATH, map_location=device, weights_only=False)
+    best = build_model(backbone=config.BACKBONE, pretrained=False).to(device)
+    best.load_state_dict(checkpoint["model_state"])
+
+    logits, labels = _collect_logits(best, val_loader, device)
+    temperature = fit_temperature(logits, labels)
+    report = calibration_report(logits, labels, temperature)
+
+    checkpoint["temperature"] = temperature
+    torch.save(checkpoint, config.BEST_MODEL_PATH)
+    print(f"[naseej] temperature scaling: T={report['temperature']:.3f} "
+          f"(ECE {report['ece_before']:.3f} -> {report['ece_after']:.3f})")
+    return report
 
 
 if __name__ == "__main__":

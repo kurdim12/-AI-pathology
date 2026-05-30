@@ -120,7 +120,8 @@ naseej/
 │   ├── triage.py        ← batch triage queue → prioritised worklist (CLI)
 │   ├── train.py         ← training (recall-prioritised, two-phase, early stop)
 │   ├── evaluate.py      ← sensitivity / specificity / AUC / confusion matrix + triage bands
-│   ├── calibrate.py     ← data-driven thresholds for a guaranteed sensitivity floor
+│   ├── calibrate.py     ← data-driven thresholds (sensitivity floor; robust mode)
+│   ├── temperature.py   ← temperature scaling (probability calibration)
 │   ├── phone_sim.py     ← deterministic phone-capture degradation (for evaluation)
 │   ├── robustness.py    ← benchmark: triage vs phone-capture degradation
 │   └── report.py        ← bilingual (Arabic / English) triage reports
@@ -231,6 +232,21 @@ Writes `outputs/robustness.json` and a degradation curve to `outputs/robustness.
 A sharp drop in recall@REVIEW as severity rises is a sign the calibrated
 threshold is too brittle for field conditions — exactly the kind of finding this
 tool is meant to surface before deployment.
+
+**Two fixes for that brittleness, both built in:**
+
+- **Temperature scaling** (`src/temperature.py`): training automatically fits a
+  scalar `T` on the validation set (Guo et al. 2017) and stores it in the
+  checkpoint. It corrects over/under-confidence so probabilities mean what they
+  say — without changing predictions (accuracy/AUC are untouched). Inference,
+  evaluation, calibration, and triage all apply it transparently.
+- **Robustness-aware calibration**: calibrate the thresholds *under* simulated
+  phone degradation so the sensitivity floor holds in the field, not just on
+  clean scans:
+
+  ```bash
+  python -m src.calibrate --target-sensitivity 0.95 --robust 0.5
+  ```
 
 ## 11. Run the demo
 

@@ -129,6 +129,36 @@ def save_thresholds(thresholds: Dict[str, float], path: str = config.THRESHOLDS_
         json.dump(thresholds, fh, indent=2)
 
 
+def _degraded_predictions(model, data_dir: str, severity: float, device: str):
+    """Score the val split under simulated phone degradation.
+
+    Calibrating against these probabilities makes the chosen thresholds hold up
+    in field conditions, not just on pristine images — a direct answer to the
+    brittleness the robustness benchmark exposed.
+    """
+    import numpy as _np
+    from PIL import Image
+
+    from src.phone_sim import degrade
+    from src.robustness import _score, _val_paths_labels
+
+    # Temporarily point the data dir at the requested folder for the split.
+    prev = config.TRAIN_DIR
+    config.TRAIN_DIR = data_dir
+    try:
+        paths, labels = _val_paths_labels()
+    finally:
+        config.TRAIN_DIR = prev
+
+    probs = []
+    for path in paths:
+        img = Image.open(path)
+        if severity > 0:
+            img = degrade(img, severity)
+        probs.append(_score(model, img, device))
+    return _np.array(labels), _np.array(probs)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Calibrate Naseej triage thresholds for a guaranteed sensitivity floor."
@@ -139,6 +169,10 @@ def main() -> None:
     parser.add_argument("--data-dir", default=config.TRAIN_DIR,
                         help="labelled folder; its validation split is used to calibrate")
     parser.add_argument("--out", default=config.THRESHOLDS_PATH)
+    parser.add_argument("--robust", type=float, default=None, metavar="SEVERITY",
+                        help="calibrate under simulated phone degradation at this "
+                             "0..1 severity, so the sensitivity floor holds in the "
+                             "field (not just on clean images)")
     args = parser.parse_args()
 
     model, backbone, trained = load_model(checkpoint_path=args.checkpoint)
@@ -146,10 +180,16 @@ def main() -> None:
         print("[naseej] warning: no trained checkpoint — calibrating an "
               "un-fine-tuned model is meaningless. Run `python -m src.train` first.")
 
-    _, val_loader, _ = build_dataloaders(train_dir=args.data_dir)
-    labels, probs, _ = collect_predictions(model, val_loader, config.DEVICE)
+    if args.robust is not None:
+        labels, probs = _degraded_predictions(model, args.data_dir, args.robust, config.DEVICE)
+        print(f"[naseej] calibrating under phone degradation severity={args.robust:.2f}")
+    else:
+        _, val_loader, _ = build_dataloaders(train_dir=args.data_dir)
+        labels, probs, _ = collect_predictions(model, val_loader, config.DEVICE)
 
     thresholds = calibrate_thresholds(labels, probs, args.target_sensitivity)
+    if args.robust is not None:
+        thresholds["calibrated_under_severity"] = float(args.robust)
     save_thresholds(thresholds, args.out)
 
     print("\n================ Naseej · threshold calibration ================")

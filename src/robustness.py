@@ -26,13 +26,17 @@ from typing import List
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from PIL import Image
 from sklearn.metrics import roc_auc_score
 
 import config
 from src.data import build_dataloaders, eval_transforms
-from src.inference import load_model, load_thresholds, triage_priority
+from src.inference import (
+    load_model,
+    load_thresholds,
+    softmax_with_temperature,
+    triage_priority,
+)
 from src.phone_sim import degrade
 
 try:
@@ -62,7 +66,7 @@ def _val_paths_labels() -> tuple[list[str], list[int]]:
 @torch.no_grad()
 def _score(model, image: Image.Image, device: str) -> float:
     tensor = eval_transforms()(image.convert("RGB")).unsqueeze(0).to(device)
-    probs = F.softmax(model(tensor), dim=1).squeeze(0)
+    probs = softmax_with_temperature(model(tensor), model).squeeze(0)
     return float(probs[config.MALIGNANT_INDEX].item())
 
 

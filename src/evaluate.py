@@ -29,6 +29,7 @@ from src.inference import (
     PRIORITY_URGENT,
     load_model,
     load_thresholds,
+    softmax_with_temperature,
     triage_priority,
 )
 
@@ -41,13 +42,17 @@ except Exception:  # pragma: no cover
 
 @torch.no_grad()
 def collect_predictions(model, loader, device):
-    """Return ``(labels, probs_malignant, preds)`` as numpy arrays."""
+    """Return ``(labels, probs_malignant, preds)`` as numpy arrays.
+
+    Applies the model's fitted temperature so the probabilities match what
+    inference/triage produce (and what thresholds are calibrated against).
+    """
     model.eval()
     all_labels, all_probs, all_preds = [], [], []
     for images, labels in tqdm(loader, desc="eval", leave=False):
         images = images.to(device)
         logits = model(images)
-        probs = torch.softmax(logits, dim=1)[:, config.MALIGNANT_INDEX]
+        probs = softmax_with_temperature(logits, model)[:, config.MALIGNANT_INDEX]
         preds = (probs >= 0.5).long()
 
         all_labels.extend(labels.tolist())

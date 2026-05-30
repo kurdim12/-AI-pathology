@@ -75,13 +75,18 @@ def load_model(
     happened — but ``trained=False`` is surfaced so predictions are clearly
     flagged as not meaningful yet.
 
+    The fitted temperature (if any) is attached as ``model.temperature`` so the
+    whole pipeline applies calibrated probabilities transparently.
+
     Returns ``(model, backbone, trained)``.
     """
+    temperature = 1.0
     if os.path.exists(checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
         backbone = checkpoint.get("backbone", config.BACKBONE)
         model = build_model(backbone=backbone, pretrained=False)
         model.load_state_dict(checkpoint["model_state"])
+        temperature = float(checkpoint.get("temperature", 1.0))
         trained = True
     else:
         backbone = config.BACKBONE
@@ -96,7 +101,19 @@ def load_model(
         trained = False
 
     model.to(device).eval()
+    model.temperature = temperature  # type: ignore[attr-defined]
     return model, backbone, trained
+
+
+def softmax_with_temperature(logits: torch.Tensor, model: torch.nn.Module) -> torch.Tensor:
+    """Softmax that applies the model's fitted temperature (default 1.0 = none).
+
+    Temperature scaling only rescales confidences; it never changes which class
+    wins, so labels/AUC are unaffected while the probabilities (and therefore
+    the triage thresholds) become better calibrated.
+    """
+    temperature = float(getattr(model, "temperature", 1.0))
+    return F.softmax(logits / temperature, dim=1)
 
 
 def triage_priority(
@@ -170,7 +187,7 @@ def _tta_probs(model: torch.nn.Module, tensor: torch.Tensor) -> torch.Tensor:
         torch.rot90(tensor, k=1, dims=[2, 3]),  # 90°
         torch.rot90(tensor, k=3, dims=[2, 3]),  # 270°
     ]
-    probs = [F.softmax(model(v), dim=1) for v in views]
+    probs = [softmax_with_temperature(model(v), model) for v in views]
     return torch.stack(probs, dim=0).mean(dim=0)
 
 
@@ -213,10 +230,10 @@ def analyze(
             cam_engine.remove()
         cam_np = cam.squeeze(0).cpu().numpy()
         overlay_img, heatmap_img = overlay_heatmap(image, cam_np)
-        canonical_probs = F.softmax(logits, dim=1)
+        canonical_probs = softmax_with_temperature(logits, model)
     else:
         with torch.no_grad():
-            canonical_probs = F.softmax(model(tensor), dim=1)
+            canonical_probs = softmax_with_temperature(model(tensor), model)
 
     # TTA averages the *classification* probabilities; the heatmap stays on the
     # canonical view above (rotated heatmaps wouldn't align with the image).
