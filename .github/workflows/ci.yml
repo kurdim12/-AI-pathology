@@ -44,7 +44,9 @@ jobs:
 
       - name: End-to-end (binary) on synthetic data (no downloads)
         run: |
-          python -m scripts.make_demo_data --per-class 40
+          # 'easy' difficulty keeps CI fast and deterministic; the 'realistic'
+          # preset (overlapping classes + label noise) is for believable metrics.
+          python -m scripts.make_demo_data --difficulty easy --per-class 40
           python -m src.train --no-pretrained --epochs 1 --backbone resnet18
           python -m src.evaluate
           python -m src.calibrate --target-sensitivity 0.95
@@ -56,7 +58,7 @@ jobs:
       - name: End-to-end (multi-class subtype grading)
         run: |
           rm -rf data checkpoints outputs
-          python -m scripts.make_demo_data --multiclass --per-class 40
+          python -m scripts.make_demo_data --multiclass --difficulty easy --per-class 40
           python -m src.train --no-pretrained --epochs 1 --backbone resnet18
           python -m src.evaluate
           python -m src.triage data/train --csv outputs/worklist.csv
