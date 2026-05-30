@@ -136,7 +136,11 @@ def malignant_probability(probs: torch.Tensor) -> torch.Tensor:
     """
     idx = config.malignant_indices()
     dim = probs.dim() - 1
-    return probs.index_select(dim, torch.tensor(idx, device=probs.device)).sum(dim=dim)
+    if not idx:
+        # Degenerate taxonomy with no malignant class -> P(malignant) = 0.
+        return probs.sum(dim=dim) * 0.0
+    index = torch.tensor(idx, dtype=torch.long, device=probs.device)
+    return probs.index_select(dim, index).sum(dim=dim)
 
 
 def triage_priority(
