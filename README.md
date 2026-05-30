@@ -269,15 +269,30 @@ make api              # launch the REST API
 
 ## 12. Results
 
-> Fill in after training on your machine. Report on a held-out split:
-> sensitivity, specificity, AUC, accuracy. Lead with sensitivity.
+> **Real-data results are still TODO** — fill the "real data" column after
+> training on BreaKHis / PCam on a machine with a GPU and dataset access. Lead
+> with sensitivity.
 
-| Metric | Value |
-|---|---|
-| Sensitivity (recall) | _TODO_ |
-| Specificity | _TODO_ |
-| AUC | _TODO_ |
-| Accuracy | _TODO_ |
+| Metric | Synthetic sanity run ⚠️ | Real data (BreaKHis/PCam) |
+|---|---|---|
+| Sensitivity (recall) | 1.000 | _TODO_ |
+| Specificity | 1.000 | _TODO_ |
+| AUC | 1.000 | _TODO_ |
+| Accuracy | 1.000 | _TODO_ |
+
+⚠️ **The synthetic column is a pipeline sanity check, not a pathology result.**
+It comes from training ResNet-18 (random init, 6 epochs, early-stopped) on the
+1,600-image fixture from `scripts/make_demo_data.py`, evaluated on a 320-image
+held-out split. The signal there (benign≈bluish, malignant≈reddish) is trivially
+separable, so perfect scores are *expected* and say nothing about real tissue.
+They only confirm the train → evaluate → calibrate → triage machinery works
+end-to-end. Reproduce with:
+
+```bash
+python -m scripts.make_demo_data --per-class 800
+python -m src.train --no-pretrained --backbone resnet18 --epochs 10 --batch-size 64
+python -m src.evaluate && python -m src.calibrate
+```
 
 See [`MODEL_CARD.md`](MODEL_CARD.md) for intended use, training data, metrics,
 limitations, and ethics in one place.
