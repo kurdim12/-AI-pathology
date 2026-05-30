@@ -170,6 +170,22 @@ TARGET_SENSITIVITY = 0.95
 TTA_ENABLED = False
 
 # --------------------------------------------------------------------------- #
+# Quality gating (src/quality.py) — reject unusable phone captures up front
+# --------------------------------------------------------------------------- #
+TISSUE_SAT_THRESHOLD = 0.15          # min saturation to count a pixel as tissue
+TISSUE_BRIGHTNESS_THRESHOLD = 0.80   # below this brightness also counts as tissue
+MIN_TISSUE_FRACTION = 0.10           # need >=10% tissue or it's a background frame
+MIN_FOCUS_SCORE = 8.0                # Laplacian-variance floor for "in focus"
+
+# --------------------------------------------------------------------------- #
+# Uncertainty / abstention (src/inference.py)
+# --------------------------------------------------------------------------- #
+# When P(malignant) sits in a band around 0.5 the model is effectively guessing.
+# Within +/- UNCERTAIN_MARGIN of 0.5 we mark the case UNCERTAIN so a human is
+# explicitly asked to look, rather than emitting a low-confidence label.
+UNCERTAIN_MARGIN = 0.10              # 0 disables abstention
+
+# --------------------------------------------------------------------------- #
 # Device
 # --------------------------------------------------------------------------- #
 # Guarded so this module stays importable even before torch is installed

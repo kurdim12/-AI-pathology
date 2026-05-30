@@ -26,7 +26,7 @@ from typing import List, Optional
 from PIL import Image
 
 import config
-from src.inference import TriageResult, analyze, load_model
+from src.inference import TriageResult, analyze, load_model, predict_batch
 
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
 
@@ -96,42 +96,54 @@ def worklist_from_paths(
     if save_overlays_to:
         os.makedirs(save_overlays_to, exist_ok=True)
 
-    scored: List[WorklistItem] = []
+    # Load images, skipping unreadable files so the queue keeps moving.
+    loaded = []
     for path in paths:
         try:
-            image = Image.open(path)
-        except Exception as exc:  # skip unreadable files, keep the queue moving
+            loaded.append((path, Image.open(path)))
+        except Exception as exc:
             print(f"[naseej] skipping {path}: {exc}")
-            continue
 
-        result: TriageResult = analyze(
-            image,
-            model=model,
-            backbone=backbone,
-            trained=trained,
-            with_heatmap=bool(save_overlays_to),
-        )
+    scored: List[WorklistItem] = []
+    if save_overlays_to:
+        # Overlay path: per-image analyze() (Grad-CAM needs a backward pass).
+        for path, image in loaded:
+            result = analyze(image, model=model, backbone=backbone,
+                             trained=trained, with_heatmap=True)
+            if result.overlay is not None:
+                stem = os.path.splitext(os.path.basename(path))[0]
+                result.overlay.save(os.path.join(save_overlays_to, f"{stem}_gradcam.png"))
+            scored.append(_to_item(path, result))
+    else:
+        # Fast path: batched forward passes, no overlays.
+        results = predict_batch([im for _, im in loaded], model=model,
+                                backbone=backbone, trained=trained)
+        for (path, _), result in zip(loaded, results):
+            scored.append(_to_item(path, result))
 
-        if save_overlays_to and result.overlay is not None:
-            stem = os.path.splitext(os.path.basename(path))[0]
-            result.overlay.save(os.path.join(save_overlays_to, f"{stem}_gradcam.png"))
+    # NaN-safe sort: treat a missing probability (e.g. a quality-rejected frame)
+    # as -inf so it sorts within its priority band without breaking comparison.
+    def _sort_key(it: WorklistItem):
+        p = it.prob_malignant
+        p = -float("inf") if p != p else p  # NaN check
+        return (_PRIORITY_RANK[it.priority], -p)
 
-        scored.append(
-            WorklistItem(
-                rank=0,  # filled after sorting
-                filename=os.path.basename(path),
-                path=path,
-                label=result.label,
-                prob_malignant=result.prob_malignant,
-                confidence=result.confidence,
-                priority=result.priority,
-            )
-        )
-
-    scored.sort(key=lambda it: (_PRIORITY_RANK[it.priority], -it.prob_malignant))
+    scored.sort(key=_sort_key)
     for i, item in enumerate(scored, start=1):
         item.rank = i
     return scored
+
+
+def _to_item(path: str, result: TriageResult) -> WorklistItem:
+    return WorklistItem(
+        rank=0,  # filled after sorting
+        filename=os.path.basename(path),
+        path=path,
+        label=result.label,
+        prob_malignant=result.prob_malignant,
+        confidence=result.confidence,
+        priority=result.priority,
+    )
 
 
 def write_worklist_csv(items: List[WorklistItem], csv_path: str) -> None:
@@ -173,6 +185,9 @@ def main() -> None:
                         help="where to write overlays (with --save-overlays)")
     parser.add_argument("--report", choices=["en", "ar", "bilingual"], default=None,
                         help="for a single image, print a localised triage report")
+    parser.add_argument("--check-quality", action="store_true",
+                        help="for a single image, reject unusable captures "
+                             "(blank/blurry) before classifying")
     args = parser.parse_args()
 
     model, backbone, trained = load_model()
@@ -181,7 +196,8 @@ def main() -> None:
               "placeholders. Run `python -m src.train` first.")
 
     if os.path.isfile(args.path):
-        result = analyze(Image.open(args.path), model=model, backbone=backbone, trained=trained)
+        result = analyze(Image.open(args.path), model=model, backbone=backbone,
+                         trained=trained, check_quality=args.check_quality)
         if args.report:
             from src.report import render_bilingual_text, render_text
             print("\n" + (render_bilingual_text(result) if args.report == "bilingual"

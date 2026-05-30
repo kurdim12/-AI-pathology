@@ -37,7 +37,7 @@ jobs:
 
       - name: Verify modules import
         run: |
-          python -c "import config; from src import model, data, gradcam, inference, triage, train, evaluate, calibrate, robustness, report, phone_sim, temperature; print('imports ok')"
+          python -c "import config; from src import model, data, gradcam, inference, triage, train, evaluate, calibrate, robustness, report, phone_sim, temperature, quality; print('imports ok')"
 
       - name: Run test suite
         run: python -m pytest tests/ -q

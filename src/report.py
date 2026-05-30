@@ -33,8 +33,11 @@ _STRINGS = {
                       "makes the final call.",
         "untrained": "WARNING: no trained model loaded — this result is a "
                      "placeholder and is not meaningful.",
+        "uncertain": "NOTE: low-confidence call — flagged for mandatory human review.",
+        "lowquality": "IMAGE QUALITY: ",
         "Benign": "Benign",
         "Malignant": "Malignant",
+        "Indeterminate": "Indeterminate",
         "URGENT": "URGENT",
         "REVIEW": "REVIEW",
         "ROUTINE": "ROUTINE",
@@ -50,8 +53,11 @@ _STRINGS = {
                       "الحالات وإبراز المناطق المهمة، ويبقى القرار النهائي لطبيب "
                       "الأنسجة المرضية.",
         "untrained": "تحذير: لا يوجد نموذج مُدرَّب — هذه النتيجة مبدئية وغير ذات دلالة.",
+        "uncertain": "ملاحظة: نتيجة منخفضة الثقة — تتطلب مراجعة بشرية إلزامية.",
+        "lowquality": "جودة الصورة: ",
         "Benign": "حميد",
         "Malignant": "خبيث",
+        "Indeterminate": "غير محدد",
         "URGENT": "عاجل",
         "REVIEW": "مراجعة",
         "ROUTINE": "روتيني",
@@ -74,9 +80,11 @@ def _line(strings: dict, result: "TriageResult") -> list[str]:
         rollup = strings["Malignant"] if result.is_malignant_class else strings["Benign"]
         pretty = result.label.replace("_", " ")
         label_value = f"{pretty} ({rollup})"
+    # prob_malignant is NaN for quality-rejected frames (no model call made).
+    prob_str = "—" if result.prob_malignant != result.prob_malignant else f"{result.prob_malignant:.1%}"
     return [
         f"{strings['label']}: {label_value}",
-        f"{strings['prob']}: {result.prob_malignant:.1%}",
+        f"{strings['prob']}: {prob_str}",
         f"{strings['confidence']}: {result.confidence:.1%}",
         f"{strings['priority']}: {strings[result.priority]}",
     ]
@@ -89,6 +97,10 @@ def render_text(result: "TriageResult", lang: str = "en") -> str:
     s = _STRINGS[lang]
     bar = "=" * 48
     parts = [bar, s["title"], bar, *_line(s, result)]
+    if not getattr(result, "quality_ok", True):
+        parts.append(s["lowquality"] + getattr(result, "quality_reason", ""))
+    if getattr(result, "uncertain", False):
+        parts.append(s["uncertain"])
     if not result.trained:
         parts.append(s["untrained"])
     parts += ["-" * 48, s["disclaimer"], bar]

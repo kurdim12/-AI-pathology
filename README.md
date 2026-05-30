@@ -124,6 +124,7 @@ naseej/
 │   ├── temperature.py   ← temperature scaling (probability calibration)
 │   ├── phone_sim.py     ← deterministic phone-capture degradation (for evaluation)
 │   ├── robustness.py    ← benchmark: triage vs phone-capture degradation
+│   ├── quality.py       ← reject unusable captures (blank/blurry) before classifying
 │   └── report.py        ← bilingual (Arabic / English) triage reports
 ├── app/
 │   ├── app.py           ← Gradio demo (single slide + triage-queue tabs)
@@ -278,6 +279,23 @@ clean report in Arabic, English, or both — every report repeats, in both
 languages, that this is decision support and the pathologist decides. Use
 `--report {en,ar,bilingual}` on the CLI above, or `src.report.render_html` to
 embed a report in a UI.
+
+### Robustness for real captures
+
+Three safeguards aimed at the realities of phone-through-microscope use:
+
+- **Quality gate** (`src/quality.py`): a fast tissue-fraction + focus check
+  rejects blank/background/blurry frames *before* classification, so the system
+  asks for a re-capture instead of emitting a confident call on an unusable
+  image. `python -m src.triage slide.png --check-quality`.
+- **Uncertainty / abstention**: when `P(malignant)` lands within
+  `UNCERTAIN_MARGIN` of 0.5 the case is flagged `uncertain` and never allowed to
+  fall to `ROUTINE` — it's bumped to `REVIEW` so a human looks. A guess is
+  surfaced as a guess, not a verdict.
+- **Batched inference** (`src/inference.predict_batch`): queue triage runs in
+  batched forward passes (numerically identical to per-image, materially faster
+  on GPU/large images). The triage CLI uses it automatically when overlays
+  aren't requested.
 
 ### Multi-class grading (subtypes)
 

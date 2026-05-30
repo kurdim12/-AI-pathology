@@ -118,15 +118,18 @@ def test_tta_produces_valid_probability():
 
 
 def test_analyze_respects_explicit_thresholds():
-    model = build_model(backbone="resnet18", pretrained=False).eval()
-    img = Image.fromarray(np.random.randint(0, 255, (96, 96, 3), dtype=np.uint8))
-    # Force everything URGENT (thresholds at 0) then ROUTINE (thresholds at >1).
-    r_urgent = analyze(img, model=model, backbone="resnet18", trained=False,
-                       with_heatmap=False, thresholds=(0.0, 0.0))
-    r_routine = analyze(img, model=model, backbone="resnet18", trained=False,
-                        with_heatmap=False, thresholds=(1.01, 1.01))
+    # Use confident probabilities (clear of the 0.5 uncertainty band) so this
+    # tests threshold banding specifically, not the abstention rule.
+    from src.inference import _result_from_probs
+
+    confident_malignant = torch.tensor([0.05, 0.95])
+    confident_benign = torch.tensor([0.95, 0.05])
+    # Thresholds at 0 -> everything URGENT; at >1 -> everything ROUTINE.
+    r_urgent = _result_from_probs(confident_malignant, 0.95, 1, True, (0.0, 0.0))
+    r_routine = _result_from_probs(confident_benign, 0.05, 0, True, (1.01, 1.01))
     assert r_urgent.priority == PRIORITY_URGENT
     assert r_routine.priority == PRIORITY_ROUTINE
+    assert not r_urgent.uncertain and not r_routine.uncertain
 
 
 def test_val_paths_labels_honours_explicit_train_dir():

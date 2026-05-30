@@ -64,6 +64,9 @@ class TriageResult:
     heatmap: Optional[Image.Image] = None   # raw colourised heatmap
     trained: bool = True       # False -> running on un-fine-tuned weights
     is_malignant_class: bool = False        # predicted class is a malignant subtype
+    uncertain: bool = False     # P(malignant) near 0.5 -> model is effectively guessing
+    quality_ok: bool = True     # image passed the tissue/focus quality check
+    quality_reason: str = "ok"  # why quality failed (when quality_ok is False)
 
 
 def load_model(
@@ -227,6 +230,7 @@ def analyze(
     with_heatmap: bool = True,
     tta: bool = config.TTA_ENABLED,
     thresholds: Optional[Tuple[float, float]] = None,
+    check_quality: bool = False,
 ) -> TriageResult:
     """Run the full pipeline on one PIL image and return a ``TriageResult``.
 
@@ -237,11 +241,33 @@ def analyze(
             Grad-CAM map is always computed on the canonical (un-augmented) view.
         thresholds: optional ``(urgent, review)`` cut-offs; defaults to the
             calibrated values if present, else config.
+        check_quality: run the tissue/focus quality gate first; an unusable
+            capture short-circuits to a REVIEW result flagged for re-capture
+            rather than a (meaningless) confident classification.
     """
     if model is None:
         model, backbone, trained = load_model(device=device)
 
     image = image.convert("RGB")
+
+    if check_quality:
+        from src.quality import assess_quality
+
+        q = assess_quality(image)
+        if not q.usable:
+            # Don't trust a model call on an unusable frame. Surface it for a
+            # human (REVIEW) and explain why, rather than emitting a fake label.
+            return TriageResult(
+                label="Indeterminate",
+                prob_malignant=float("nan"),
+                confidence=0.0,
+                priority=PRIORITY_REVIEW,
+                trained=trained,
+                uncertain=True,
+                quality_ok=False,
+                quality_reason=q.reason,
+            )
+
     tensor = eval_transforms()(image).unsqueeze(0).to(device)
 
     overlay_img: Optional[Image.Image] = None
@@ -274,15 +300,73 @@ def analyze(
     prob_malignant = float(malignant_probability(probs).item())
     pred_idx = int(torch.argmax(probs).item())
 
+    return _result_from_probs(
+        probs, prob_malignant, pred_idx, trained, thresholds,
+        overlay=overlay_img, heatmap=heatmap_img,
+    )
+
+
+def _result_from_probs(probs, prob_malignant, pred_idx, trained, thresholds,
+                       overlay=None, heatmap=None) -> TriageResult:
+    """Build a TriageResult, applying triage bands + the abstention rule.
+
+    Shared by single-image ``analyze`` and ``predict_batch`` so the
+    uncertainty/abstention behaviour is identical on both paths.
+    """
     urgent_t, review_t = thresholds if thresholds is not None else (None, None)
+
+    # Abstention: if P(malignant) sits within UNCERTAIN_MARGIN of 0.5 the model
+    # is effectively guessing. Flag it and never let such a case fall to ROUTINE
+    # — it gets at least a REVIEW so a human looks.
+    uncertain = (config.UNCERTAIN_MARGIN > 0
+                 and abs(prob_malignant - 0.5) < config.UNCERTAIN_MARGIN)
+    priority = triage_priority(prob_malignant, urgent_t, review_t)
+    if uncertain and priority == PRIORITY_ROUTINE:
+        priority = PRIORITY_REVIEW
 
     return TriageResult(
         label=config.CLASS_NAMES[pred_idx],
         prob_malignant=prob_malignant,
         confidence=float(probs[pred_idx].item()),
-        priority=triage_priority(prob_malignant, urgent_t, review_t),
-        overlay=overlay_img,
-        heatmap=heatmap_img,
+        priority=priority,
+        overlay=overlay,
+        heatmap=heatmap,
         trained=trained,
         is_malignant_class=(pred_idx in config.malignant_indices()),
+        uncertain=uncertain,
     )
+
+
+@torch.no_grad()
+def predict_batch(
+    images,
+    model: Optional[torch.nn.Module] = None,
+    backbone: str = config.BACKBONE,
+    device: str = config.DEVICE,
+    trained: bool = True,
+    batch_size: int = config.BATCH_SIZE,
+    thresholds: Optional[Tuple[float, float]] = None,
+):
+    """Triage many PIL images efficiently in batched forward passes.
+
+    No Grad-CAM (that needs a per-image backward pass) — this is the fast path
+    for queue triage where only the label/probability/priority is needed.
+    Returns a list of ``TriageResult`` aligned with ``images``.
+    """
+    if model is None:
+        model, backbone, trained = load_model(device=device)
+
+    tfm = eval_transforms()
+    results = []
+    for start in range(0, len(images), batch_size):
+        chunk = images[start:start + batch_size]
+        batch = torch.stack([tfm(im.convert("RGB")) for im in chunk]).to(device)
+        probs = softmax_with_temperature(model(batch), model)
+        mal = malignant_probability(probs)
+        for i in range(probs.size(0)):
+            row = probs[i]
+            results.append(_result_from_probs(
+                row, float(mal[i].item()), int(row.argmax().item()),
+                trained, thresholds,
+            ))
+    return results
