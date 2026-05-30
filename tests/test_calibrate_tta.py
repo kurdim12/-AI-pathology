@@ -129,6 +129,29 @@ def test_analyze_respects_explicit_thresholds():
     assert r_routine.priority == PRIORITY_ROUTINE
 
 
+def test_val_paths_labels_honours_explicit_train_dir():
+    # Regression: _val_paths_labels(train_dir=...) must read the given folder.
+    # build_dataloaders' default arg is bound at import, so mutating
+    # config.TRAIN_DIR would NOT redirect it — the explicit arg must.
+    import os
+
+    from src.robustness import _val_paths_labels
+
+    with tempfile.TemporaryDirectory() as d:
+        for cls in ("Benign", "Malignant"):
+            cdir = os.path.join(d, cls)
+            os.makedirs(cdir)
+            for i in range(4):
+                Image.fromarray(
+                    np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8)
+                ).save(os.path.join(cdir, f"{cls}_{i}.png"))
+
+        paths, labels = _val_paths_labels(train_dir=d)
+        assert len(paths) > 0
+        # Every recovered path lives under the directory we explicitly passed.
+        assert all(os.path.abspath(d) in os.path.abspath(p) for p in paths)
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

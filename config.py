@@ -56,12 +56,15 @@ def is_multiclass():
 
 
 def loss_class_weights():
-    """Per-class CE weights matching CLASS_NAMES.
+    """Per-class CE weights matching CLASS_NAMES (recall-prioritised).
 
-    Binary uses CLASS_WEIGHTS as-is; multi-class weights every malignant subtype
-    by MALIGNANT_CLASS_WEIGHT and benign subtypes by 1.0.
+    Only the exact default binary taxonomy (Benign=0, Malignant=1) uses the
+    hand-tuned positional ``CLASS_WEIGHTS``. Any other taxonomy — including a
+    2-class custom one where the malignant class sorts to index 0 — is weighted
+    by malignant *membership*, so the up-weight always lands on the malignant
+    class(es) regardless of folder ordering.
     """
-    if len(CLASS_NAMES) == len(CLASS_WEIGHTS):
+    if CLASS_NAMES == ["Benign", "Malignant"] and MALIGNANT_CLASSES == ["Malignant"]:
         return list(CLASS_WEIGHTS)
     return [MALIGNANT_CLASS_WEIGHT if n in MALIGNANT_CLASSES else 1.0 for n in CLASS_NAMES]
 

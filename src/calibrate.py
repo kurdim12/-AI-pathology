@@ -146,13 +146,9 @@ def _degraded_predictions(model, data_dir: str, severity: float, device: str):
     from src.phone_sim import degrade
     from src.robustness import _score, _val_paths_labels
 
-    # Temporarily point the data dir at the requested folder for the split.
-    prev = config.TRAIN_DIR
-    config.TRAIN_DIR = data_dir
-    try:
-        paths, labels = _val_paths_labels()
-    finally:
-        config.TRAIN_DIR = prev
+    # Pass the dataset dir explicitly: build_dataloaders' default is bound at
+    # import, so mutating config.TRAIN_DIR would not redirect the split.
+    paths, labels = _val_paths_labels(train_dir=data_dir)
 
     mal_idx = set(config.malignant_indices())
     bin_labels = [1 if int(y) in mal_idx else 0 for y in labels]

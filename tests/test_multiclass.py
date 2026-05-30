@@ -57,6 +57,25 @@ def test_use_multiclass_sets_taxonomy():
         _restore_binary()
 
 
+def test_loss_weights_up_weight_malignant_at_index_0():
+    # Regression: a 2-class taxonomy whose malignant class sorts to index 0 must
+    # still up-weight the malignant class — not blindly return positional
+    # CLASS_WEIGHTS = [1.0, 2.0] (which would up-weight the benign class).
+    try:
+        config.use_multiclass(["carcinoma", "normal"], ["carcinoma"])  # carcinoma -> 0
+        assert config.malignant_indices() == [0]
+        w = config.loss_class_weights()
+        assert w[0] == config.MALIGNANT_CLASS_WEIGHT  # weight on malignant (idx 0)
+        assert w[1] == 1.0                            # benign (idx 1)
+    finally:
+        _restore_binary()
+
+
+def test_default_binary_still_uses_tuned_weights():
+    _restore_binary()
+    assert config.loss_class_weights() == list(config.CLASS_WEIGHTS)
+
+
 # ---- P(malignant) rollup ------------------------------------------------- #
 
 def test_malignant_probability_binary():

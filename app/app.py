@@ -26,6 +26,7 @@ from src.inference import (
     PRIORITY_URGENT,
     analyze,
     load_model,
+    load_thresholds,
 )
 from src.triage import worklist_from_paths
 
@@ -163,10 +164,13 @@ def build_demo() -> gr.Blocks:
             )
             q_btn.click(run_queue, inputs=q_files, outputs=[q_summary, q_table])
 
+        # Show the thresholds actually used for the badges (calibrated if a
+        # thresholds.json exists, else the config defaults) so the footer never
+        # disagrees with the decisions.
+        urgent_t, review_t = load_thresholds()
         gr.Markdown(
             f"*{_DISCLAIMER}* &nbsp;|&nbsp; backbone: `{BACKBONE}` &nbsp;|&nbsp; "
-            f"thresholds — urgent ≥ {config.URGENT_THRESHOLD:.2f}, "
-            f"review ≥ {config.REVIEW_THRESHOLD:.2f}"
+            f"thresholds — urgent ≥ {urgent_t:.2f}, review ≥ {review_t:.2f}"
         )
     return demo
 

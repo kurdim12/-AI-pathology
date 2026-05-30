@@ -46,13 +46,16 @@ except Exception:  # pragma: no cover
         return iterable
 
 
-def _val_paths_labels() -> tuple[list[str], list[int]]:
+def _val_paths_labels(train_dir: str = None) -> tuple[list[str], list[int]]:
     """Recover the (path, label) pairs of the held-out validation split.
 
     Rebuilds the same seeded split ``build_dataloaders`` uses, but keeps the
-    file paths so we can re-open and degrade each image at eval time.
+    file paths so we can re-open and degrade each image at eval time. Pass
+    ``train_dir`` explicitly to target a non-default dataset (the default arg of
+    ``build_dataloaders`` is bound at import and ignores later config mutation).
     """
-    train_loader, val_loader, _ = build_dataloaders()
+    kwargs = {} if train_dir is None else {"train_dir": train_dir}
+    train_loader, val_loader, _ = build_dataloaders(**kwargs)
     # val_loader wraps a Subset(ImageFolder) — pull paths via the underlying
     # samples and the subset indices.
     subset = val_loader.dataset

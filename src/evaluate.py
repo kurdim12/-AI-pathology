@@ -83,6 +83,11 @@ def collect_class_predictions(model, loader, device):
 
 def compute_metrics(labels: np.ndarray, probs: np.ndarray, preds: np.ndarray) -> dict:
     """Compute binary triage metrics from (binary) labels/probabilities/predictions."""
+    if len(labels) == 0:
+        raise ValueError(
+            "No validation samples to evaluate. The validation split is empty — "
+            "use more data or a larger VAL_SPLIT."
+        )
     # Confusion matrix on the binary benign(0)/malignant(1) axis.
     cm = confusion_matrix(labels, preds, labels=[0, 1])
     tn, fp, fn, tp = cm.ravel()
