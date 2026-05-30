@@ -132,7 +132,10 @@ naseej/
 ├── scripts/
 │   ├── get_data.py      ← dataset layout helper
 │   ├── download_pcam.py ← automated public-dataset download (PatchCamelyon)
-│   └── make_demo_data.py ← synthetic fixture so the pipeline runs with no downloads
+│   ├── make_demo_data.py ← synthetic fixture so the pipeline runs with no downloads
+│   ├── make_samples.py  ← bundle sample slides for the booth UI
+│   └── demo.py          ← one-command booth bootstrap (data→train→app)
+├── assets/samples/      ← ready-to-click sample slides for the demo
 ├── tests/               ← CPU tests (no dataset / no downloads)
 └── .github/workflows/   ← CI (tests + synthetic end-to-end on every push)
 ```
@@ -145,6 +148,22 @@ cd naseej
 python -m venv .venv && source .venv/bin/activate     # optional
 pip install -r requirements.txt
 ```
+
+### One-command demo (no dataset needed)
+
+From a fresh clone to a running booth demo — generates a realistic synthetic
+dataset, trains + calibrates a quick model, bundles sample slides, and launches
+the web app:
+
+```bash
+make demo            # or: python -m scripts.demo
+```
+
+Re-running reuses what's already there. The app's **Single slide** tab has
+click-to-load samples (including a blank frame that shows the quality gate
+rejecting an unusable capture), and a **Triage queue** tab that sorts a batch
+into a worklist. *(Synthetic data → believable-but-meaningless metrics; real
+data gives real results.)*
 
 ## 8. Get the data
 

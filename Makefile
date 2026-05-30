@@ -3,11 +3,12 @@
 PYTHON ?= python
 ARGS ?=
 
-.PHONY: help setup demo-data data-check train eval calibrate robustness triage test app api docker clean
+.PHONY: help setup demo demo-data data-check train eval calibrate robustness triage test app api docker clean
 
 help:
 	@echo "Naseej targets:"
 	@echo "  setup       install Python dependencies"
+	@echo "  demo        one command: data -> train -> calibrate -> samples -> launch app"
 	@echo "  demo-data   generate a synthetic dataset (not real histopathology)"
 	@echo "  data-check  verify data/train/{Benign,Malignant} layout"
 	@echo "  train       train the model            (ARGS=... to pass flags)"
@@ -23,6 +24,9 @@ help:
 
 setup:
 	$(PYTHON) -m pip install -r requirements.txt
+
+demo:
+	$(PYTHON) -m scripts.demo $(ARGS)
 
 demo-data:
 	$(PYTHON) -m scripts.make_demo_data $(ARGS)

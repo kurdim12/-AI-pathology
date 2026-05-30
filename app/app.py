@@ -34,6 +34,26 @@ from src.triage import worklist_from_paths
 # checkpoint exists yet, so the booth always runs).
 MODEL, BACKBONE, TRAINED = load_model()
 
+# Bundled sample slides for the booth: prefer a checked-in assets/samples/ dir;
+# otherwise fall back to a few images from the local dataset if present.
+import glob as _glob
+import os as _os
+
+
+def _sample_images(max_n: int = 6):
+    roots = [
+        _os.path.join(config.ROOT, "assets", "samples"),
+        config.TRAIN_DIR,
+    ]
+    found = []
+    for root in roots:
+        if _os.path.isdir(root):
+            for ext in ("*.png", "*.jpg", "*.jpeg"):
+                found += _glob.glob(_os.path.join(root, "**", ext), recursive=True)
+        if found:
+            break
+    return sorted(found)[:max_n]
+
 PRIORITY_STYLE = {
     PRIORITY_URGENT: ("#b00020", "🔴", "Likely malignant — move to the front of the queue."),
     PRIORITY_REVIEW: ("#c77700", "🟠", "Uncertain — a pathologist should review soon."),
@@ -48,12 +68,13 @@ _DISCLAIMER = (
 
 def _badge_html(priority: str, prob_malignant: float) -> str:
     color, dot, blurb = PRIORITY_STYLE[priority]
+    prob_str = "—" if prob_malignant != prob_malignant else f"{prob_malignant:.1%}"  # NaN-safe
     return (
         f"<div style='border-left:8px solid {color};padding:12px 16px;"
         f"background:rgba(0,0,0,0.03);border-radius:6px'>"
         f"<div style='font-size:22px;font-weight:700;color:{color}'>{dot} {priority}</div>"
         f"<div style='margin-top:4px;color:#333'>P(malignant) = "
-        f"<b>{prob_malignant:.1%}</b></div>"
+        f"<b>{prob_str}</b></div>"
         f"<div style='margin-top:4px;color:#555;font-size:14px'>{blurb}</div>"
         f"</div>"
     )
@@ -68,20 +89,40 @@ def _untrained_note() -> str:
     )
 
 
-def run_single(image):
+def run_single(image, check_quality=True):
     if image is None:
         return "Please upload a slide image.", None, None
 
     if not isinstance(image, Image.Image):
         image = Image.fromarray(image)
 
-    result = analyze(image, model=MODEL, backbone=BACKBONE, trained=TRAINED)
+    result = analyze(image, model=MODEL, backbone=BACKBONE, trained=TRAINED,
+                     check_quality=check_quality)
+
+    # Quality-rejected capture: explain and ask for a re-capture, no overlay.
+    if not result.quality_ok:
+        summary = (
+            "<div style='border-left:8px solid #c77700;padding:12px 16px;"
+            "background:rgba(0,0,0,0.03);border-radius:6px'>"
+            "<div style='font-size:20px;font-weight:700;color:#c77700'>⚠ Image not usable</div>"
+            f"<div style='margin-top:6px;color:#555'>{result.quality_reason}</div>"
+            "<div style='margin-top:6px;color:#555;font-size:14px'>Re-capture the "
+            "field (more tissue in frame, refocus) and try again.</div></div>"
+            f"<div style='margin-top:10px;color:#888;font-size:12px'>{_DISCLAIMER}</div>"
+        )
+        return summary, None, None
 
     summary = _badge_html(result.priority, result.prob_malignant)
     summary += (
         f"<div style='margin-top:10px;color:#333'>Prediction: <b>{result.label}</b> "
         f"(confidence {result.confidence:.1%})</div>"
     )
+    if result.uncertain:
+        summary += (
+            "<div style='margin-top:8px;color:#c77700;font-size:13px'>"
+            "⚖ Low-confidence call (probability near 50%) — flagged for "
+            "mandatory human review.</div>"
+        )
     if not result.trained:
         summary += _untrained_note()
     summary += f"<div style='margin-top:10px;color:#888;font-size:12px'>{_DISCLAIMER}</div>"
@@ -136,14 +177,22 @@ def build_demo() -> gr.Blocks:
             with gr.Row():
                 with gr.Column(scale=1):
                     inp = gr.Image(type="pil", label="Slide image (scanner or phone photo)")
+                    quality_chk = gr.Checkbox(
+                        value=True,
+                        label="Reject unusable captures (blank / out-of-focus) before analysing",
+                    )
                     btn = gr.Button("Analyse slide", variant="primary")
+                    _samples = _sample_images()
+                    if _samples:
+                        gr.Examples(examples=_samples, inputs=inp,
+                                    label="Sample slides (click to load)")
                 with gr.Column(scale=1):
                     out_summary = gr.HTML(label="Triage")
                     with gr.Row():
                         out_overlay = gr.Image(label="Grad-CAM overlay")
                         out_heatmap = gr.Image(label="Heatmap")
-            btn.click(run_single, inputs=inp, outputs=[out_summary, out_overlay, out_heatmap])
-            inp.upload(run_single, inputs=inp, outputs=[out_summary, out_overlay, out_heatmap])
+            btn.click(run_single, inputs=[inp, quality_chk],
+                      outputs=[out_summary, out_overlay, out_heatmap])
 
         with gr.Tab("Triage queue"):
             gr.Markdown(
