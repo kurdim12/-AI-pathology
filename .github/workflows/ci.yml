@@ -32,10 +32,21 @@ jobs:
           # CPU-only torch wheels keep the job light and avoid CUDA downloads.
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install numpy pillow scikit-learn matplotlib tqdm pytest
+          # Optional API deps so tests/test_api.py runs instead of skipping.
+          pip install fastapi "uvicorn[standard]" python-multipart httpx
 
       - name: Verify modules import
         run: |
-          python -c "import config; from src import model, data, gradcam, inference; print('imports ok')"
+          python -c "import config; from src import model, data, gradcam, inference, triage, train, evaluate, calibrate; print('imports ok')"
 
-      - name: Run smoke tests
+      - name: Run test suite
         run: python -m pytest tests/ -q
+
+      - name: End-to-end on synthetic data (no downloads)
+        run: |
+          python -m scripts.make_demo_data --per-class 40
+          python -m src.train --no-pretrained --epochs 1 --backbone resnet18
+          python -m src.evaluate
+          python -m src.calibrate --target-sensitivity 0.95
+          python -m src.triage data/train --csv outputs/worklist.csv
+          test -f outputs/thresholds.json && test -f outputs/worklist.csv && echo "pipeline ok"

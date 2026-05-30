@@ -110,22 +110,26 @@ naseej/
 ├── MODEL_CARD.md        ← intended use, data, metrics, limitations, ethics
 ├── Dockerfile           ← containerised demo
 ├── requirements.txt
+├── Makefile             ← one-command workflows (make train / eval / test / ...)
 ├── config.py            ← all tunable settings
 ├── src/
 │   ├── model.py         ← backbone + classification head (+ foundation-model loader)
 │   ├── data.py          ← data loading + phone-capture augmentations
 │   ├── gradcam.py       ← Grad-CAM (explainability)
-│   ├── inference.py     ← predict + triage priority + heatmap overlay
+│   ├── inference.py     ← predict + triage priority + heatmap (+ TTA, calibrated thresholds)
 │   ├── triage.py        ← batch triage queue → prioritised worklist (CLI)
 │   ├── train.py         ← training (recall-prioritised, two-phase, early stop)
-│   └── evaluate.py      ← sensitivity / specificity / AUC / confusion matrix
+│   ├── evaluate.py      ← sensitivity / specificity / AUC / confusion matrix + triage bands
+│   └── calibrate.py     ← data-driven thresholds for a guaranteed sensitivity floor
 ├── app/
-│   └── app.py           ← Gradio demo (single slide + triage-queue tabs)
+│   ├── app.py           ← Gradio demo (single slide + triage-queue tabs)
+│   └── api.py           ← REST API (FastAPI) for lab-workflow integration
 ├── scripts/
 │   ├── get_data.py      ← dataset layout helper
-│   └── download_pcam.py ← automated public-dataset download (PatchCamelyon)
-├── tests/               ← CPU smoke tests (no dataset / no downloads)
-└── .github/workflows/   ← CI (runs the tests on every push)
+│   ├── download_pcam.py ← automated public-dataset download (PatchCamelyon)
+│   └── make_demo_data.py ← synthetic fixture so the pipeline runs with no downloads
+├── tests/               ← CPU tests (no dataset / no downloads)
+└── .github/workflows/   ← CI (tests + synthetic end-to-end on every push)
 ```
 
 ## 7. Setup
@@ -164,22 +168,49 @@ python -m scripts.download_pcam --full             # everything (large)
 
 (Alternatives: BreaKHis as above, LC25000 — also public.)
 
+### Try the whole pipeline with zero downloads
+
+No dataset yet? Generate a tiny **synthetic** fixture (not real histopathology —
+a sanity signal only) and run the full chain in seconds, on CPU:
+
+```bash
+python -m scripts.make_demo_data            # writes data/train/{Benign,Malignant}
+python -m src.train --no-pretrained --epochs 2
+python -m src.evaluate
+python -m src.calibrate
+python -m src.triage data/train --csv outputs/worklist.csv
+```
+
 ## 9. Train
 
 ```bash
-python -m src.train
+python -m src.train                          # ResNet-50, ImageNet weights
+python -m src.train --backbone resnet18 --epochs 20 --lr 1e-4
+python -m src.train --no-pretrained          # random init (offline)
 ```
 
-Saves the best checkpoint (by validation AUC) to `checkpoints/best_model.pt`.
+Two-phase fine-tuning (head warm-up → full network), early stopping on
+validation AUC, mixed precision on CUDA. Saves the best checkpoint (by AUC) to
+`checkpoints/best_model.pt`, plus `outputs/history.json` and `train_summary.json`.
 
-## 10. Evaluate
+## 10. Evaluate & calibrate
 
 ```bash
-python -m src.evaluate
+python -m src.evaluate                        # metrics + triage-band breakdown
+python -m src.calibrate                        # data-driven thresholds
+python -m src.calibrate --target-sensitivity 0.98
 ```
 
-Reports **sensitivity (recall)** — the headline metric for a triage tool —
-plus specificity, AUC, accuracy, and the confusion matrix.
+`evaluate` reports **sensitivity (recall)** — the headline metric for a triage
+tool — plus specificity, AUC, accuracy, the confusion matrix, and how the
+triage bands bucket the validation set (it writes `outputs/metrics.json`).
+
+`calibrate` is the operating-point step a real deployment needs. It picks the
+`REVIEW` cut-off as the **highest threshold that still guarantees a target
+malignant recall** (default 95%), and `URGENT` at the most-separating point
+(Youden's J). Results are written to `outputs/thresholds.json` and picked up
+automatically by inference, the triage CLI, the API, and the demo — so the
+thresholds in `config.py` stop being guesses and start being measured.
 
 ## 11. Run the demo
 
@@ -203,6 +234,19 @@ python -m src.triage path/to/folder --csv outputs/worklist.csv --save-overlays
 python -m src.triage path/to/one_slide.png          # single slide
 ```
 
+### REST API (lab-workflow integration)
+
+A LIS or lab system can POST images and get structured triage JSON back — no UI:
+
+```bash
+pip install fastapi "uvicorn[standard]" python-multipart
+uvicorn app.api:app --port 8000           # interactive docs at /docs
+```
+
+- `GET /health` — liveness + whether a trained model is loaded.
+- `POST /predict` — one image (`file`) → `{label, prob_malignant, priority, …}`.
+- `POST /triage` — many images (`files`) → worklist sorted most-urgent-first.
+
 ### Run with Docker
 
 ```bash
@@ -210,6 +254,17 @@ docker build -t naseej .
 docker run -p 7860:7860 \
   -v "$PWD/checkpoints:/app/checkpoints" \   # mount a trained checkpoint
   naseej
+```
+
+### One-command workflows (Makefile)
+
+```bash
+make demo-data        # synthetic fixture
+make train            # train (override: make train ARGS="--backbone resnet18")
+make eval calibrate   # evaluate then calibrate thresholds
+make test             # run the CPU test suite
+make app              # launch the Gradio demo
+make api              # launch the REST API
 ```
 
 ## 12. Results

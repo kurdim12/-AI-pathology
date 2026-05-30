@@ -23,6 +23,7 @@ Run::
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import random
@@ -123,10 +124,42 @@ def _save_checkpoint(model, class_names, val_auc, epoch) -> None:
     )
 
 
-def main() -> None:
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Train Naseej (recall-prioritised fine-tuning).")
+    parser.add_argument("--backbone", default=config.BACKBONE,
+                        help="resnet50 | resnet18 | efficientnet_b0")
+    parser.add_argument("--epochs", type=int, default=config.EPOCHS,
+                        help="max fine-tune epochs (phase 2)")
+    parser.add_argument("--batch-size", type=int, default=config.BATCH_SIZE)
+    parser.add_argument("--lr", type=float, default=config.LEARNING_RATE)
+    parser.add_argument("--data-dir", default=config.TRAIN_DIR)
+    pre = parser.add_mutually_exclusive_group()
+    pre.add_argument("--pretrained", dest="pretrained", action="store_true",
+                     help="start from ImageNet weights (default)")
+    pre.add_argument("--no-pretrained", dest="pretrained", action="store_false",
+                     help="random init (offline / smoke runs)")
+    parser.set_defaults(pretrained=config.PRETRAINED)
+    return parser.parse_args()
+
+
+def _apply_overrides(args: argparse.Namespace) -> None:
+    """Push CLI overrides into config so the whole module sees one source of truth."""
+    config.BACKBONE = args.backbone
+    config.EPOCHS = args.epochs
+    config.BATCH_SIZE = args.batch_size
+    config.LEARNING_RATE = args.lr
+    config.TRAIN_DIR = args.data_dir
+    config.PRETRAINED = args.pretrained
+
+
+def main(args: argparse.Namespace | None = None) -> None:
+    if args is not None:
+        _apply_overrides(args)
+
     set_seed()
     device = config.DEVICE
-    print(f"[naseej] device={device} backbone={config.BACKBONE}")
+    print(f"[naseej] device={device} backbone={config.BACKBONE} "
+          f"pretrained={config.PRETRAINED} epochs={config.EPOCHS}")
 
     train_loader, val_loader, class_names = build_dataloaders()
     print(
@@ -134,7 +167,13 @@ def main() -> None:
         f"train_batches={len(train_loader)} val_batches={len(val_loader)}"
     )
 
-    model = build_model().to(device)
+    # Pass config values explicitly: build_model's defaults are bound at import
+    # time, so CLI overrides pushed into config must be forwarded here.
+    model = build_model(
+        backbone=config.BACKBONE,
+        pretrained=config.PRETRAINED,
+        freeze_backbone=config.FREEZE_BACKBONE,
+    ).to(device)
     weight = torch.tensor(config.CLASS_WEIGHTS, dtype=torch.float, device=device)
     criterion = nn.CrossEntropyLoss(weight=weight)
 
@@ -217,4 +256,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(_parse_args())

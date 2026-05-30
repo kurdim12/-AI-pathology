@@ -18,6 +18,7 @@ TRAIN_DIR = os.path.join(DATA_DIR, "train")          # expects Benign/ and Malig
 CHECKPOINT_DIR = os.path.join(ROOT, "checkpoints")
 BEST_MODEL_PATH = os.path.join(CHECKPOINT_DIR, "best_model.pt")
 OUTPUT_DIR = os.path.join(ROOT, "outputs")           # plots, reports
+THRESHOLDS_PATH = os.path.join(OUTPUT_DIR, "thresholds.json")  # calibrated triage cut-offs
 
 # --------------------------------------------------------------------------- #
 # Classes
@@ -89,8 +90,20 @@ FOUNDATION_WEIGHTS = None
 #   p >= URGENT_THRESHOLD                     -> URGENT
 #   REVIEW_THRESHOLD <= p < URGENT_THRESHOLD  -> REVIEW
 #   p <  REVIEW_THRESHOLD                     -> ROUTINE
+# These are sensible defaults. Run `python -m src.calibrate` after training to
+# replace them with data-driven cut-offs that guarantee a sensitivity floor;
+# calibrated values are written to THRESHOLDS_PATH and picked up automatically.
 URGENT_THRESHOLD = 0.70
 REVIEW_THRESHOLD = 0.30
+
+# Calibration target: the minimum malignant sensitivity (recall) the REVIEW
+# cut-off must guarantee on the validation set. A missed cancer is the failure
+# that matters, so we hold recall high and let specificity float.
+TARGET_SENSITIVITY = 0.95
+
+# Test-time augmentation: average predictions over label-preserving views
+# (flips / 90° rotations) for steadier probabilities on messy phone images.
+TTA_ENABLED = False
 
 # --------------------------------------------------------------------------- #
 # Device

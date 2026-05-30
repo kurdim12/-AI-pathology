@@ -66,12 +66,15 @@ def test_transforms_output_shape():
 
 
 def test_triage_thresholds():
-    assert triage_priority(config.URGENT_THRESHOLD) == PRIORITY_URGENT
-    assert triage_priority(1.0) == PRIORITY_URGENT
-    assert triage_priority(config.REVIEW_THRESHOLD) == PRIORITY_REVIEW
-    assert triage_priority((config.URGENT_THRESHOLD + config.REVIEW_THRESHOLD) / 2) == PRIORITY_REVIEW
-    assert triage_priority(0.0) == PRIORITY_ROUTINE
-    assert triage_priority(config.REVIEW_THRESHOLD - 1e-6) == PRIORITY_ROUTINE
+    # Pass thresholds explicitly so the banding logic is tested deterministically,
+    # independent of any calibrated outputs/thresholds.json that may be present.
+    urgent, review = config.URGENT_THRESHOLD, config.REVIEW_THRESHOLD
+    assert triage_priority(urgent, urgent, review) == PRIORITY_URGENT
+    assert triage_priority(1.0, urgent, review) == PRIORITY_URGENT
+    assert triage_priority(review, urgent, review) == PRIORITY_REVIEW
+    assert triage_priority((urgent + review) / 2, urgent, review) == PRIORITY_REVIEW
+    assert triage_priority(0.0, urgent, review) == PRIORITY_ROUTINE
+    assert triage_priority(review - 1e-6, urgent, review) == PRIORITY_ROUTINE
 
 
 def test_analyze_end_to_end():

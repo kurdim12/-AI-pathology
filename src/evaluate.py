@@ -13,6 +13,8 @@ Run::
 
 from __future__ import annotations
 
+import argparse
+import json
 import os
 
 import numpy as np
@@ -21,7 +23,14 @@ from sklearn.metrics import confusion_matrix, roc_auc_score
 
 import config
 from src.data import build_dataloaders
-from src.inference import load_model
+from src.inference import (
+    PRIORITY_REVIEW,
+    PRIORITY_ROUTINE,
+    PRIORITY_URGENT,
+    load_model,
+    load_thresholds,
+    triage_priority,
+)
 
 try:
     from tqdm import tqdm
@@ -69,6 +78,35 @@ def compute_metrics(labels: np.ndarray, probs: np.ndarray, preds: np.ndarray) ->
     }
 
 
+def triage_breakdown(labels: np.ndarray, probs: np.ndarray) -> dict:
+    """How the current triage thresholds bucket the validation set.
+
+    Reports the per-band counts and, crucially, the malignant recall captured
+    at the REVIEW cut-off — the share of cancers that get at least flagged.
+    """
+    urgent_t, review_t = load_thresholds()
+    bands = {PRIORITY_URGENT: {"benign": 0, "malignant": 0},
+             PRIORITY_REVIEW: {"benign": 0, "malignant": 0},
+             PRIORITY_ROUTINE: {"benign": 0, "malignant": 0}}
+
+    for label, p in zip(labels, probs):
+        band = triage_priority(float(p), urgent_t, review_t)
+        key = "malignant" if label == config.MALIGNANT_INDEX else "benign"
+        bands[band][key] += 1
+
+    n_malignant = int(np.sum(labels == config.MALIGNANT_INDEX))
+    flagged = bands[PRIORITY_URGENT]["malignant"] + bands[PRIORITY_REVIEW]["malignant"]
+    recall_at_review = flagged / n_malignant if n_malignant else float("nan")
+
+    return {
+        "urgent_threshold": urgent_t,
+        "review_threshold": review_t,
+        "bands": bands,
+        "malignant_recall_at_review": recall_at_review,
+        "malignant_missed_as_routine": bands[PRIORITY_ROUTINE]["malignant"],
+    }
+
+
 def save_confusion_matrix(cm: np.ndarray, out_path: str) -> None:
     """Save a labelled confusion-matrix figure (best-effort)."""
     try:
@@ -101,7 +139,7 @@ def save_confusion_matrix(cm: np.ndarray, out_path: str) -> None:
     plt.close(fig)
 
 
-def print_report(metrics: dict) -> None:
+def print_report(metrics: dict, breakdown: dict | None = None) -> None:
     cm = metrics["confusion_matrix"]
     tn, fp, fn, tp = cm.ravel()
     print("\n================ Naseej · evaluation ================")
@@ -111,34 +149,70 @@ def print_report(metrics: dict) -> None:
     print(f"  Specificity          : {metrics['specificity']:.4f}")
     print(f"  AUC                  : {metrics['auc']:.4f}")
     print(f"  Accuracy             : {metrics['accuracy']:.4f}")
-    print("  ---- confusion matrix ----")
+    print("  ---- confusion matrix (threshold 0.5) ----")
     print(f"                 pred Benign   pred Malignant")
     print(f"  true Benign        {tn:6d}          {fp:6d}")
     print(f"  true Malignant     {fn:6d}          {tp:6d}")
+    if breakdown is not None:
+        b = breakdown["bands"]
+        print("  ---- triage bands (urgent ≥ {:.3f}, review ≥ {:.3f}) ----".format(
+            breakdown["urgent_threshold"], breakdown["review_threshold"]))
+        for band in (PRIORITY_URGENT, PRIORITY_REVIEW, PRIORITY_ROUTINE):
+            print(f"  {band:<8} : benign {b[band]['benign']:4d}   malignant {b[band]['malignant']:4d}")
+        print(f"  malignant recall captured at REVIEW : "
+              f"{breakdown['malignant_recall_at_review']:.4f}")
+        if breakdown["malignant_missed_as_routine"]:
+            print(f"  ⚠ malignant cases sent to ROUTINE   : "
+                  f"{breakdown['malignant_missed_as_routine']} (these are missed)")
     print("====================================================\n")
 
 
-def main() -> None:
+def _json_safe(metrics: dict, breakdown: dict) -> dict:
+    out = {k: (None if isinstance(v, float) and np.isnan(v) else v)
+           for k, v in metrics.items() if k != "confusion_matrix"}
+    out["confusion_matrix"] = metrics["confusion_matrix"].tolist()
+    out["triage"] = breakdown
+    return out
+
+
+def main(args: argparse.Namespace | None = None) -> None:
+    checkpoint = getattr(args, "checkpoint", config.BEST_MODEL_PATH)
+    data_dir = getattr(args, "data_dir", config.TRAIN_DIR)
+
     device = config.DEVICE
-    model, backbone, trained = load_model(device=device)
+    model, backbone, trained = load_model(checkpoint_path=checkpoint, device=device)
     if not trained:
         print(
             "[naseej] warning: no trained checkpoint found "
-            f"({config.BEST_MODEL_PATH}). Evaluating an un-fine-tuned model; "
+            f"({checkpoint}). Evaluating an un-fine-tuned model; "
             "numbers below are not meaningful. Run `python -m src.train` first."
         )
 
     # Reuse the held-out validation split as the evaluation set.
-    _, val_loader, _ = build_dataloaders()
+    _, val_loader, _ = build_dataloaders(train_dir=data_dir)
     labels, probs, preds = collect_predictions(model, val_loader, device)
     metrics = compute_metrics(labels, probs, preds)
-    print_report(metrics)
+    breakdown = triage_breakdown(labels, probs)
+    print_report(metrics, breakdown)
 
+    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     cm_path = os.path.join(config.OUTPUT_DIR, "confusion_matrix.png")
     save_confusion_matrix(metrics["confusion_matrix"], cm_path)
     if os.path.exists(cm_path):
         print(f"[naseej] confusion matrix saved -> {cm_path}")
 
+    metrics_path = os.path.join(config.OUTPUT_DIR, "metrics.json")
+    with open(metrics_path, "w") as fh:
+        json.dump(_json_safe(metrics, breakdown), fh, indent=2)
+    print(f"[naseej] metrics written -> {metrics_path}")
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Evaluate Naseej (lead with sensitivity).")
+    parser.add_argument("--checkpoint", default=config.BEST_MODEL_PATH)
+    parser.add_argument("--data-dir", default=config.TRAIN_DIR)
+    return parser.parse_args()
+
 
 if __name__ == "__main__":
-    main()
+    main(_parse_args())

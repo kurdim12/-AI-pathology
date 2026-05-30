@@ -53,8 +53,11 @@ Produced by `python -m src.evaluate` (also writes a confusion matrix to
   Jordanian/MENA staining and local phone cameras is **unvalidated**.
 - **Phone images are harder** than scanner whole-slide images; augmentation
   mitigates but does not eliminate the gap.
-- **Thresholds** (`config.URGENT_THRESHOLD`, `config.REVIEW_THRESHOLD`) must be
-  **re-calibrated on local data** before any real use.
+- **Thresholds** must be **re-calibrated on local data** before any real use.
+  `python -m src.calibrate` does this — it sets the `REVIEW` cut-off to the
+  highest threshold that still guarantees a target malignant recall (default
+  95%) and writes `outputs/thresholds.json`, which inference/triage/API/demo
+  pick up automatically. The `config.py` defaults are only a starting point.
 - A false "ROUTINE" on a malignant slide is the most harmful error — hence the
   recall-prioritised loss and an explicit `REVIEW` band, but residual risk
   remains.

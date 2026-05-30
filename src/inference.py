@@ -14,6 +14,7 @@ local data (README §13).
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -32,6 +33,23 @@ from src.model import build_model, get_target_layer
 PRIORITY_URGENT = "URGENT"
 PRIORITY_REVIEW = "REVIEW"
 PRIORITY_ROUTINE = "ROUTINE"
+
+
+def load_thresholds(path: str = config.THRESHOLDS_PATH) -> Tuple[float, float]:
+    """Return ``(urgent_threshold, review_threshold)``.
+
+    Prefers the calibrated values written by ``src.calibrate`` (so a freshly
+    calibrated operating point is used automatically); falls back to the
+    defaults in ``config`` when no calibration file exists.
+    """
+    if os.path.exists(path):
+        try:
+            with open(path) as fh:
+                data = json.load(fh)
+            return float(data["urgent_threshold"]), float(data["review_threshold"])
+        except (KeyError, ValueError, json.JSONDecodeError):
+            pass  # malformed file -> fall back to config defaults
+    return config.URGENT_THRESHOLD, config.REVIEW_THRESHOLD
 
 
 @dataclass
@@ -67,19 +85,38 @@ def load_model(
         trained = True
     else:
         backbone = config.BACKBONE
-        # ImageNet weights + random head: structurally valid, not yet meaningful.
-        model = build_model(backbone=backbone, pretrained=True)
+        # No checkpoint: prefer ImageNet weights (structurally valid, not yet
+        # meaningful — trained=False is surfaced). If the weights can't be
+        # downloaded (offline lab / air-gapped / CI), degrade to random init
+        # rather than crash; predictions are placeholders either way.
+        try:
+            model = build_model(backbone=backbone, pretrained=True)
+        except Exception:
+            model = build_model(backbone=backbone, pretrained=False)
         trained = False
 
     model.to(device).eval()
     return model, backbone, trained
 
 
-def triage_priority(prob_malignant: float) -> str:
-    """Map P(malignant) to a triage priority using config thresholds."""
-    if prob_malignant >= config.URGENT_THRESHOLD:
+def triage_priority(
+    prob_malignant: float,
+    urgent_threshold: Optional[float] = None,
+    review_threshold: Optional[float] = None,
+) -> str:
+    """Map P(malignant) to a triage priority.
+
+    With no thresholds passed, uses the calibrated values if present, else the
+    config defaults. Explicit thresholds (e.g. from a config sweep) win.
+    """
+    if urgent_threshold is None or review_threshold is None:
+        cal_urgent, cal_review = load_thresholds()
+        urgent_threshold = cal_urgent if urgent_threshold is None else urgent_threshold
+        review_threshold = cal_review if review_threshold is None else review_threshold
+
+    if prob_malignant >= urgent_threshold:
         return PRIORITY_URGENT
-    if prob_malignant >= config.REVIEW_THRESHOLD:
+    if prob_malignant >= review_threshold:
         return PRIORITY_REVIEW
     return PRIORITY_ROUTINE
 
@@ -117,6 +154,26 @@ def overlay_heatmap(
     return Image.fromarray(blended), Image.fromarray(heat_arr.astype(np.uint8))
 
 
+@torch.no_grad()
+def _tta_probs(model: torch.nn.Module, tensor: torch.Tensor) -> torch.Tensor:
+    """Average softmax probabilities over label-preserving views.
+
+    Histopathology has no canonical orientation, so horizontal/vertical flips
+    and 90° rotations are all valid views of the same tissue. Averaging over
+    them steadies predictions on noisy phone images — directly supporting the
+    phone-capture robustness goal.
+    """
+    views = [
+        tensor,
+        torch.flip(tensor, dims=[3]),          # horizontal flip
+        torch.flip(tensor, dims=[2]),          # vertical flip
+        torch.rot90(tensor, k=1, dims=[2, 3]),  # 90°
+        torch.rot90(tensor, k=3, dims=[2, 3]),  # 270°
+    ]
+    probs = [F.softmax(model(v), dim=1) for v in views]
+    return torch.stack(probs, dim=0).mean(dim=0)
+
+
 def analyze(
     image: Image.Image,
     model: Optional[torch.nn.Module] = None,
@@ -124,10 +181,18 @@ def analyze(
     device: str = config.DEVICE,
     trained: bool = True,
     with_heatmap: bool = True,
+    tta: bool = config.TTA_ENABLED,
+    thresholds: Optional[Tuple[float, float]] = None,
 ) -> TriageResult:
     """Run the full pipeline on one PIL image and return a ``TriageResult``.
 
-    If ``model`` is ``None`` it is loaded from the default checkpoint.
+    Args:
+        model: if ``None``, loaded from the default checkpoint.
+        with_heatmap: also compute a Grad-CAM overlay (needs a backward pass).
+        tta: average over flips/rotations for steadier probabilities. The
+            Grad-CAM map is always computed on the canonical (un-augmented) view.
+        thresholds: optional ``(urgent, review)`` cut-offs; defaults to the
+            calibrated values if present, else config.
     """
     if model is None:
         model, backbone, trained = load_model(device=device)
@@ -139,8 +204,8 @@ def analyze(
     heatmap_img: Optional[Image.Image] = None
 
     if with_heatmap:
-        # GradCAM does the forward pass (with gradients) and returns the logits,
-        # so we read the probability from the very same pass that made the map.
+        # GradCAM does a forward pass (with gradients) on the canonical view and
+        # returns the logits, so the heatmap and its probability always agree.
         cam_engine = GradCAM(model, get_target_layer(model, backbone))
         try:
             cam, logits = cam_engine(tensor, class_idx=config.MALIGNANT_INDEX)
@@ -148,19 +213,24 @@ def analyze(
             cam_engine.remove()
         cam_np = cam.squeeze(0).cpu().numpy()
         overlay_img, heatmap_img = overlay_heatmap(image, cam_np)
+        canonical_probs = F.softmax(logits, dim=1)
     else:
         with torch.no_grad():
-            logits = model(tensor)
+            canonical_probs = F.softmax(model(tensor), dim=1)
 
-    probs = F.softmax(logits, dim=1).squeeze(0)
+    # TTA averages the *classification* probabilities; the heatmap stays on the
+    # canonical view above (rotated heatmaps wouldn't align with the image).
+    probs = (_tta_probs(model, tensor) if tta else canonical_probs).squeeze(0)
     prob_malignant = float(probs[config.MALIGNANT_INDEX].item())
     pred_idx = int(torch.argmax(probs).item())
+
+    urgent_t, review_t = thresholds if thresholds is not None else (None, None)
 
     return TriageResult(
         label=config.CLASS_NAMES[pred_idx],
         prob_malignant=prob_malignant,
         confidence=float(probs[pred_idx].item()),
-        priority=triage_priority(prob_malignant),
+        priority=triage_priority(prob_malignant, urgent_t, review_t),
         overlay=overlay_img,
         heatmap=heatmap_img,
         trained=trained,
