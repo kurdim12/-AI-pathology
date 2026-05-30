@@ -171,6 +171,8 @@ def main() -> None:
                         help="save a Grad-CAM overlay per slide")
     parser.add_argument("--overlay-dir", default=os.path.join(config.OUTPUT_DIR, "overlays"),
                         help="where to write overlays (with --save-overlays)")
+    parser.add_argument("--report", choices=["en", "ar", "bilingual"], default=None,
+                        help="for a single image, print a localised triage report")
     args = parser.parse_args()
 
     model, backbone, trained = load_model()
@@ -180,10 +182,15 @@ def main() -> None:
 
     if os.path.isfile(args.path):
         result = analyze(Image.open(args.path), model=model, backbone=backbone, trained=trained)
-        dot = {"URGENT": "🔴", "REVIEW": "🟠", "ROUTINE": "🟢"}[result.priority]
-        print(f"\n{dot} {result.priority}   {result.label}   "
-              f"P(malignant)={result.prob_malignant:.1%}   "
-              f"(confidence {result.confidence:.1%})\n")
+        if args.report:
+            from src.report import render_bilingual_text, render_text
+            print("\n" + (render_bilingual_text(result) if args.report == "bilingual"
+                          else render_text(result, args.report)) + "\n")
+        else:
+            dot = {"URGENT": "🔴", "REVIEW": "🟠", "ROUTINE": "🟢"}[result.priority]
+            print(f"\n{dot} {result.priority}   {result.label}   "
+                  f"P(malignant)={result.prob_malignant:.1%}   "
+                  f"(confidence {result.confidence:.1%})\n")
         return
 
     if os.path.isdir(args.path):

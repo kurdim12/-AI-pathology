@@ -3,7 +3,7 @@
 PYTHON ?= python
 ARGS ?=
 
-.PHONY: help setup demo-data data-check train eval calibrate triage test app api docker clean
+.PHONY: help setup demo-data data-check train eval calibrate robustness triage test app api docker clean
 
 help:
 	@echo "Naseej targets:"
@@ -13,6 +13,7 @@ help:
 	@echo "  train       train the model            (ARGS=... to pass flags)"
 	@echo "  eval        evaluate (metrics + triage bands)"
 	@echo "  calibrate   pick thresholds for a sensitivity floor"
+	@echo "  robustness  measure triage vs phone-capture degradation"
 	@echo "  triage      triage a folder            (DIR=path, default data/train)"
 	@echo "  test        run the CPU test suite"
 	@echo "  app         launch the Gradio demo"
@@ -37,6 +38,9 @@ eval:
 
 calibrate:
 	$(PYTHON) -m src.calibrate $(ARGS)
+
+robustness:
+	$(PYTHON) -m src.robustness $(ARGS)
 
 DIR ?= data/train
 triage:

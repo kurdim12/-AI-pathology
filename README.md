@@ -120,7 +120,10 @@ naseej/
 │   ├── triage.py        ← batch triage queue → prioritised worklist (CLI)
 │   ├── train.py         ← training (recall-prioritised, two-phase, early stop)
 │   ├── evaluate.py      ← sensitivity / specificity / AUC / confusion matrix + triage bands
-│   └── calibrate.py     ← data-driven thresholds for a guaranteed sensitivity floor
+│   ├── calibrate.py     ← data-driven thresholds for a guaranteed sensitivity floor
+│   ├── phone_sim.py     ← deterministic phone-capture degradation (for evaluation)
+│   ├── robustness.py    ← benchmark: triage vs phone-capture degradation
+│   └── report.py        ← bilingual (Arabic / English) triage reports
 ├── app/
 │   ├── app.py           ← Gradio demo (single slide + triage-queue tabs)
 │   └── api.py           ← REST API (FastAPI) for lab-workflow integration
@@ -212,6 +215,23 @@ malignant recall** (default 95%), and `URGENT` at the most-separating point
 automatically by inference, the triage CLI, the API, and the demo — so the
 thresholds in `config.py` stop being guesses and start being measured.
 
+### Measure phone-capture robustness
+
+The project's central claim — *it works on phone photos, not just clean scans* —
+is something to **measure, not assert**. This benchmark re-scores the validation
+set under increasing, controlled phone-capture degradation (lighting, blur, JPEG,
+rotation, colour cast) and reports how the triage-critical metrics — above all
+the malignant recall still captured at the `REVIEW` threshold — hold up:
+
+```bash
+python -m src.robustness --severities 0,0.25,0.5,0.75,1.0
+```
+
+Writes `outputs/robustness.json` and a degradation curve to `outputs/robustness.png`.
+A sharp drop in recall@REVIEW as severity rises is a sign the calibrated
+threshold is too brittle for field conditions — exactly the kind of finding this
+tool is meant to surface before deployment.
+
 ## 11. Run the demo
 
 ```bash
@@ -232,7 +252,16 @@ a sorted worklist (URGENT → ROUTINE), written to CSV:
 ```bash
 python -m src.triage path/to/folder --csv outputs/worklist.csv --save-overlays
 python -m src.triage path/to/one_slide.png          # single slide
+python -m src.triage path/to/one_slide.png --report bilingual   # Arabic + English
 ```
+
+### Bilingual reports (Arabic / English)
+
+For MENA-lab workflows, a single slide's triage result can be rendered as a
+clean report in Arabic, English, or both — every report repeats, in both
+languages, that this is decision support and the pathologist decides. Use
+`--report {en,ar,bilingual}` on the CLI above, or `src.report.render_html` to
+embed a report in a UI.
 
 ### REST API (lab-workflow integration)
 
