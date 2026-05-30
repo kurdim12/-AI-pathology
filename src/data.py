@@ -73,16 +73,16 @@ def _check_layout(train_dir: str) -> None:
         raise FileNotFoundError(
             f"Training directory not found: {train_dir}\n"
             "Arrange the dataset as data/train/Benign/*.png and "
-            "data/train/Malignant/*.png, then run `python -m scripts.get_data` "
-            "to verify."
+            "data/train/Malignant/*.png (or one folder per subtype for "
+            "multi-class), then run `python -m scripts.get_data` to verify."
         )
-    for cls in config.CLASS_NAMES:
-        cls_dir = os.path.join(train_dir, cls)
-        if not os.path.isdir(cls_dir):
-            raise FileNotFoundError(
-                f"Expected class folder missing: {cls_dir}\n"
-                "Run `python -m scripts.get_data` for the expected layout."
-            )
+    subdirs = [d for d in sorted(os.listdir(train_dir))
+               if os.path.isdir(os.path.join(train_dir, d))]
+    if len(subdirs) < 2:
+        raise FileNotFoundError(
+            f"Need at least two class subfolders under {train_dir} "
+            f"(found {subdirs}). See `python -m scripts.get_data`."
+        )
 
 
 def build_dataloaders(
@@ -105,13 +105,30 @@ def build_dataloaders(
     train_view = datasets.ImageFolder(train_dir, transform=phone_capture_transforms())
     eval_view = datasets.ImageFolder(train_dir, transform=eval_transforms())
 
-    # Sanity check: torchvision orders classes alphabetically. Make sure that
-    # matches the index convention the rest of the codebase relies on.
-    if train_view.classes != config.CLASS_NAMES:
-        raise ValueError(
-            f"Class order mismatch. Found {train_view.classes}, "
-            f"expected {config.CLASS_NAMES}. Rename the folders to match."
-        )
+    # torchvision orders classes alphabetically. Reconcile with config:
+    #   * exact match            -> nothing to do (the common binary case).
+    #   * binary default but the folders are different / more numerous -> adopt
+    #     them as a multi-class taxonomy (subtypes that contain a known
+    #     malignant name are treated as malignant; otherwise the caller should
+    #     set config.MALIGNANT_CLASSES first via config.use_multiclass).
+    found = train_view.classes
+    if found != config.CLASS_NAMES:
+        is_default_binary = config.CLASS_NAMES == ["Benign", "Malignant"]
+        if is_default_binary and found != ["Benign", "Malignant"]:
+            # Heuristic malignant detection from common naming; the caller can
+            # override beforehand for full control.
+            mal = [c for c in found
+                   if c in config.MALIGNANT_CLASSES
+                   or any(k in c.lower() for k in ("malign", "carcinoma", "tumor", "cancer"))]
+            config.use_multiclass(found, mal or [found[-1]])
+            print(f"[naseej] detected {len(found)} classes -> multi-class mode; "
+                  f"malignant = {config.MALIGNANT_CLASSES}")
+        elif found != config.CLASS_NAMES:
+            raise ValueError(
+                f"Class folders {found} don't match the configured taxonomy "
+                f"{config.CLASS_NAMES}. Set config.use_multiclass(...) or fix the "
+                f"folder names."
+            )
 
     n_total = len(train_view)
     n_val = int(n_total * val_split)

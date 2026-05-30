@@ -279,6 +279,35 @@ languages, that this is decision support and the pathologist decides. Use
 `--report {en,ar,bilingual}` on the CLI above, or `src.report.render_html` to
 embed a report in a UI.
 
+### Multi-class grading (subtypes)
+
+Naseej is binary (benign vs malignant) by default, but also grades **tumour
+subtypes** while still producing a benign/malignant triage decision. Just lay
+the data out with one folder per subtype — Naseej auto-detects the classes,
+treats subtypes whose names look malignant (`*carcinoma*`, `malign*`, …) as
+malignant, and sets `P(malignant)` to the summed probability over the malignant
+subtypes, so triage, calibration and robustness all work unchanged:
+
+```
+data/train/adenosis/*.png            # benign subtype
+data/train/ductal_carcinoma/*.png    # malignant subtype
+data/train/fibroadenoma/*.png        # benign subtype
+data/train/lobular_carcinoma/*.png   # malignant subtype
+```
+
+```bash
+python -m scripts.make_demo_data --multiclass   # 4-subtype synthetic fixture
+python -m src.train --no-pretrained --epochs 5
+python -m src.evaluate                            # binary triage metrics + a
+                                                  # per-subtype confusion matrix
+```
+
+For full control over which subtypes count as malignant, call
+`config.use_multiclass(class_names, malignant_classes)` before training (a
+ready-made `BREAKHIS_8CLASS` preset is in `config.py`). A prediction then reports
+the specific subtype (e.g. *lobular carcinoma*) and rolls it up to the triage
+priority; bilingual reports show both.
+
 ### REST API (lab-workflow integration)
 
 A LIS or lab system can POST images and get structured triage JSON back — no UI:
@@ -364,9 +393,9 @@ python -m pytest tests/ -q
 ## 14. Roadmap
 
 1. Field validation on a small set of real Jordanian biopsy images (with a partner lab).
-2. Swap to an open pathology foundation model (CTransPath / Phikon / UNI).
-3. Multi-class grading beyond binary benign/malignant.
-4. Arabic-language reporting and a lab-workflow integration.
+2. Swap to an open pathology foundation model (CTransPath / Phikon / UNI) — *loader built (`src/model.py`).*
+3. ~~Multi-class grading beyond binary benign/malignant.~~ ✅ **Done** — see "Multi-class grading" below.
+4. ~~Arabic-language reporting~~ ✅ and a lab-workflow integration ✅ (`src/report.py`, `app/api.py`).
 
 ## 15. Ethics
 

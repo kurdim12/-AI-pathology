@@ -29,6 +29,7 @@ from src.inference import (
     PRIORITY_URGENT,
     load_model,
     load_thresholds,
+    malignant_probability,
     softmax_with_temperature,
     triage_priority,
 )
@@ -42,30 +43,48 @@ except Exception:  # pragma: no cover
 
 @torch.no_grad()
 def collect_predictions(model, loader, device):
-    """Return ``(labels, probs_malignant, preds)`` as numpy arrays.
+    """Return ``(binary_labels, probs_malignant, binary_preds)`` as numpy arrays.
 
-    Applies the model's fitted temperature so the probabilities match what
-    inference/triage produce (and what thresholds are calibrated against).
+    Works for binary *and* multi-class models: ``probs_malignant`` is the summed
+    probability over malignant classes, and labels/preds are collapsed to the
+    binary benign(0)/malignant(1) axis that triage cares about. Applies the
+    model's fitted temperature so probabilities match inference/calibration.
     """
     model.eval()
+    mal_idx = set(config.malignant_indices())
     all_labels, all_probs, all_preds = [], [], []
     for images, labels in tqdm(loader, desc="eval", leave=False):
         images = images.to(device)
-        logits = model(images)
-        probs = softmax_with_temperature(logits, model)[:, config.MALIGNANT_INDEX]
+        full_probs = softmax_with_temperature(model(images), model)
+        probs = malignant_probability(full_probs)
         preds = (probs >= 0.5).long()
 
-        all_labels.extend(labels.tolist())
+        # Collapse true class labels to binary malignant membership.
+        bin_labels = [1 if int(y) in mal_idx else 0 for y in labels.tolist()]
+        all_labels.extend(bin_labels)
         all_probs.extend(probs.cpu().tolist())
         all_preds.extend(preds.cpu().tolist())
 
     return np.array(all_labels), np.array(all_probs), np.array(all_preds)
 
 
+@torch.no_grad()
+def collect_class_predictions(model, loader, device):
+    """Return ``(true_class, pred_class)`` over all classes — for the per-subtype
+    confusion matrix in multi-class mode."""
+    model.eval()
+    true_c, pred_c = [], []
+    for images, labels in tqdm(loader, desc="eval-cls", leave=False):
+        probs = softmax_with_temperature(model(images.to(device)), model)
+        true_c.extend(labels.tolist())
+        pred_c.extend(probs.argmax(dim=1).cpu().tolist())
+    return np.array(true_c), np.array(pred_c)
+
+
 def compute_metrics(labels: np.ndarray, probs: np.ndarray, preds: np.ndarray) -> dict:
-    """Compute triage metrics from labels/probabilities/predictions."""
-    # Confusion matrix with fixed label order [Benign(0), Malignant(1)].
-    cm = confusion_matrix(labels, preds, labels=[config.BENIGN_INDEX, config.MALIGNANT_INDEX])
+    """Compute binary triage metrics from (binary) labels/probabilities/predictions."""
+    # Confusion matrix on the binary benign(0)/malignant(1) axis.
+    cm = confusion_matrix(labels, preds, labels=[0, 1])
     tn, fp, fn, tp = cm.ravel()
 
     sensitivity = tp / (tp + fn) if (tp + fn) else float("nan")  # recall, malignant
@@ -94,12 +113,13 @@ def triage_breakdown(labels: np.ndarray, probs: np.ndarray) -> dict:
              PRIORITY_REVIEW: {"benign": 0, "malignant": 0},
              PRIORITY_ROUTINE: {"benign": 0, "malignant": 0}}
 
+    # labels here are already binary (1 = malignant) from collect_predictions.
     for label, p in zip(labels, probs):
         band = triage_priority(float(p), urgent_t, review_t)
-        key = "malignant" if label == config.MALIGNANT_INDEX else "benign"
+        key = "malignant" if int(label) == 1 else "benign"
         bands[band][key] += 1
 
-    n_malignant = int(np.sum(labels == config.MALIGNANT_INDEX))
+    n_malignant = int(np.sum(labels == 1))
     flagged = bands[PRIORITY_URGENT]["malignant"] + bands[PRIORITY_REVIEW]["malignant"]
     recall_at_review = flagged / n_malignant if n_malignant else float("nan")
 
@@ -112,8 +132,13 @@ def triage_breakdown(labels: np.ndarray, probs: np.ndarray) -> dict:
     }
 
 
-def save_confusion_matrix(cm: np.ndarray, out_path: str) -> None:
-    """Save a labelled confusion-matrix figure (best-effort)."""
+def save_confusion_matrix(cm: np.ndarray, out_path: str, class_names=None,
+                          title: str = "Confusion matrix") -> None:
+    """Save a labelled confusion-matrix figure (best-effort).
+
+    ``class_names`` defaults to the binary triage axis; pass subtype names for a
+    multi-class matrix.
+    """
     try:
         import matplotlib
 
@@ -122,22 +147,21 @@ def save_confusion_matrix(cm: np.ndarray, out_path: str) -> None:
     except Exception:  # pragma: no cover
         return
 
+    names = class_names if class_names is not None else ["Benign", "Malignant"]
+    n = len(names)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    fig, ax = plt.subplots(figsize=(4.5, 4))
+    fig, ax = plt.subplots(figsize=(max(4.5, n * 0.9), max(4, n * 0.85)))
     im = ax.imshow(cm, cmap="Blues")
-    ax.set_xticks([0, 1], labels=config.CLASS_NAMES)
-    ax.set_yticks([0, 1], labels=config.CLASS_NAMES)
+    ax.set_xticks(range(n), labels=names, rotation=45, ha="right")
+    ax.set_yticks(range(n), labels=names)
     ax.set_xlabel("Predicted")
     ax.set_ylabel("True")
-    ax.set_title("Confusion matrix")
+    ax.set_title(title)
     thresh = cm.max() / 2 if cm.max() else 0
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
-            ax.text(
-                j, i, str(cm[i, j]),
-                ha="center", va="center",
-                color="white" if cm[i, j] > thresh else "black",
-            )
+            ax.text(j, i, str(cm[i, j]), ha="center", va="center",
+                    color="white" if cm[i, j] > thresh else "black", fontsize=8)
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
@@ -202,9 +226,24 @@ def main(args: argparse.Namespace | None = None) -> None:
 
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     cm_path = os.path.join(config.OUTPUT_DIR, "confusion_matrix.png")
-    save_confusion_matrix(metrics["confusion_matrix"], cm_path)
+    save_confusion_matrix(metrics["confusion_matrix"], cm_path,
+                          title="Triage confusion matrix (benign vs malignant)")
     if os.path.exists(cm_path):
         print(f"[naseej] confusion matrix saved -> {cm_path}")
+
+    # In multi-class mode, also report the per-subtype confusion matrix.
+    if config.is_multiclass():
+        true_c, pred_c = collect_class_predictions(model, val_loader, device)
+        n = len(config.CLASS_NAMES)
+        cls_cm = confusion_matrix(true_c, pred_c, labels=list(range(n)))
+        subtype_acc = float(np.trace(cls_cm) / cls_cm.sum()) if cls_cm.sum() else float("nan")
+        print(f"  ---- multi-class grading ({n} subtypes) ----")
+        print(f"  subtype accuracy : {subtype_acc:.4f}")
+        cls_path = os.path.join(config.OUTPUT_DIR, "confusion_matrix_subtypes.png")
+        save_confusion_matrix(cls_cm, cls_path, class_names=config.CLASS_NAMES,
+                              title="Subtype confusion matrix")
+        if os.path.exists(cls_path):
+            print(f"[naseej] subtype confusion matrix saved -> {cls_path}")
 
     metrics_path = os.path.join(config.OUTPUT_DIR, "metrics.json")
     with open(metrics_path, "w") as fh:

@@ -21,13 +21,74 @@ OUTPUT_DIR = os.path.join(ROOT, "outputs")           # plots, reports
 THRESHOLDS_PATH = os.path.join(OUTPUT_DIR, "thresholds.json")  # calibrated triage cut-offs
 
 # --------------------------------------------------------------------------- #
-# Classes
+# Classes & triage taxonomy
 # --------------------------------------------------------------------------- #
 # Index order matters: torchvision.ImageFolder assigns labels alphabetically,
-# so "Benign" -> 0 and "Malignant" -> 1. Keep this consistent everywhere.
+# so the folder names must sort into this order. Keep it consistent everywhere.
+#
+# Naseej is binary by default (benign vs malignant). It also supports
+# **multi-class grading** of tumour subtypes while still producing a
+# benign/malignant triage decision: set CLASS_NAMES to the subtype folders and
+# MALIGNANT_CLASSES to the subset that is malignant. P(malignant) is then the
+# summed softmax probability over the malignant subtypes, so triage, calibration
+# and robustness all work unchanged. Use `use_multiclass(...)` below.
 CLASS_NAMES = ["Benign", "Malignant"]
+MALIGNANT_CLASSES = ["Malignant"]      # names in CLASS_NAMES that count as malignant
+
+# Binary convenience indices (valid only in the 2-class default).
 MALIGNANT_INDEX = 1
 BENIGN_INDEX = 0
+
+# Multi-class loss weighting: malignant subtypes get this weight, benign ones 1.0
+# (mirrors the recall-prioritised binary CLASS_WEIGHTS for the malignant class).
+MALIGNANT_CLASS_WEIGHT = 2.0
+
+
+def malignant_indices(class_names=None):
+    """Indices within ``class_names`` (default CLASS_NAMES) that are malignant."""
+    names = CLASS_NAMES if class_names is None else class_names
+    return [i for i, n in enumerate(names) if n in MALIGNANT_CLASSES]
+
+
+def is_multiclass():
+    """True when grading more than two classes (subtype mode)."""
+    return len(CLASS_NAMES) > 2
+
+
+def loss_class_weights():
+    """Per-class CE weights matching CLASS_NAMES.
+
+    Binary uses CLASS_WEIGHTS as-is; multi-class weights every malignant subtype
+    by MALIGNANT_CLASS_WEIGHT and benign subtypes by 1.0.
+    """
+    if len(CLASS_NAMES) == len(CLASS_WEIGHTS):
+        return list(CLASS_WEIGHTS)
+    return [MALIGNANT_CLASS_WEIGHT if n in MALIGNANT_CLASSES else 1.0 for n in CLASS_NAMES]
+
+
+def use_multiclass(class_names, malignant_classes):
+    """Switch the runtime taxonomy to a multi-class grading setup.
+
+    ``class_names`` must be the (alphabetically-sorted, to match ImageFolder)
+    subtype folder names; ``malignant_classes`` the subset that is malignant.
+    """
+    global CLASS_NAMES, MALIGNANT_CLASSES, MALIGNANT_INDEX, BENIGN_INDEX
+    CLASS_NAMES = list(class_names)
+    MALIGNANT_CLASSES = list(malignant_classes)
+    # Binary indices are meaningless now; leave the 2-class defaults so any
+    # legacy reference fails loudly rather than silently mis-indexing.
+    MALIGNANT_INDEX = 1
+    BENIGN_INDEX = 0
+
+
+# Example preset: BreaKHis 8-way subtypes (folder names sort alphabetically).
+BREAKHIS_8CLASS = [
+    "adenosis", "ductal_carcinoma", "fibroadenoma", "lobular_carcinoma",
+    "mucinous_carcinoma", "papillary_carcinoma", "phyllodes_tumor", "tubular_adenoma",
+]
+BREAKHIS_8CLASS_MALIGNANT = [
+    "ductal_carcinoma", "lobular_carcinoma", "mucinous_carcinoma", "papillary_carcinoma",
+]
 
 # --------------------------------------------------------------------------- #
 # Model

@@ -83,23 +83,33 @@ def train_one_epoch(model, loader, criterion, optimizer, device, scaler=None) ->
 
 @torch.no_grad()
 def validate(model, loader, criterion, device):
-    """Return ``(val_loss, val_auc, val_acc)``."""
+    """Return ``(val_loss, val_auc, val_acc)``.
+
+    ``val_auc`` is always the binary benign-vs-malignant AUC (the triage-relevant
+    ranking metric used for checkpoint selection); in multi-class it is computed
+    from the summed malignant probability. ``val_acc`` is class accuracy (subtype
+    accuracy in multi-class, binary accuracy otherwise).
+    """
+    from src.inference import malignant_probability
+
     model.eval()
+    mal_idx = set(config.malignant_indices())
     running, n = 0.0, 0
-    all_probs, all_labels = [], []
+    mal_probs, bin_labels, class_correct = [], [], 0
     for images, labels in tqdm(loader, desc="val", leave=False):
         images, labels = images.to(device), labels.to(device)
         logits = model(images)
         running += criterion(logits, labels).item() * images.size(0)
         n += images.size(0)
-        probs = torch.softmax(logits, dim=1)[:, config.MALIGNANT_INDEX]
-        all_probs.extend(probs.cpu().tolist())
-        all_labels.extend(labels.cpu().tolist())
+
+        full = torch.softmax(logits, dim=1)
+        mal_probs.extend(malignant_probability(full).cpu().tolist())
+        bin_labels.extend([1 if int(y) in mal_idx else 0 for y in labels.cpu().tolist()])
+        class_correct += int((full.argmax(dim=1) == labels).sum().item())
 
     val_loss = running / max(n, 1)
-    preds = [1 if p >= 0.5 else 0 for p in all_probs]
-    acc = float(np.mean([int(p == t) for p, t in zip(preds, all_labels)])) if all_labels else float("nan")
-    auc = float(roc_auc_score(all_labels, all_probs)) if len(set(all_labels)) >= 2 else float("nan")
+    acc = class_correct / max(n, 1)
+    auc = float(roc_auc_score(bin_labels, mal_probs)) if len(set(bin_labels)) >= 2 else float("nan")
     return val_loss, auc, acc
 
 
@@ -116,6 +126,7 @@ def _save_checkpoint(model, class_names, val_auc, epoch) -> None:
             "model_state": model.state_dict(),
             "backbone": config.BACKBONE,
             "class_names": class_names,
+            "malignant_classes": list(config.MALIGNANT_CLASSES),
             "val_auc": val_auc,
             "epoch": epoch,
             "image_size": config.IMAGE_SIZE,
@@ -171,10 +182,13 @@ def main(args: argparse.Namespace | None = None) -> None:
     # time, so CLI overrides pushed into config must be forwarded here.
     model = build_model(
         backbone=config.BACKBONE,
+        num_classes=len(config.CLASS_NAMES),
         pretrained=config.PRETRAINED,
         freeze_backbone=config.FREEZE_BACKBONE,
     ).to(device)
-    weight = torch.tensor(config.CLASS_WEIGHTS, dtype=torch.float, device=device)
+    # Recall-prioritised weighting: malignant class(es) up-weighted (works for
+    # both the binary default and multi-class subtype grading).
+    weight = torch.tensor(config.loss_class_weights(), dtype=torch.float, device=device)
     criterion = nn.CrossEntropyLoss(weight=weight)
 
     use_amp = (device == "cuda") and config.USE_AMP
@@ -279,7 +293,8 @@ def _fit_and_store_temperature(val_loader, device) -> dict | None:
         return None
 
     checkpoint = torch.load(config.BEST_MODEL_PATH, map_location=device, weights_only=False)
-    best = build_model(backbone=config.BACKBONE, pretrained=False).to(device)
+    best = build_model(backbone=config.BACKBONE, num_classes=len(config.CLASS_NAMES),
+                       pretrained=False).to(device)
     best.load_state_dict(checkpoint["model_state"])
 
     logits, labels = _collect_logits(best, val_loader, device)

@@ -54,21 +54,36 @@ def _make_image(rng: np.random.Generator, centre: np.ndarray, size: int) -> Imag
     return Image.fromarray(np.clip(base, 0, 255).astype(np.uint8))
 
 
-def generate(per_class: int = 80, size: int = 96, seed: int = config.SEED) -> None:
+# Multi-class preset: 4 synthetic "subtypes", 2 benign + 2 malignant, each with
+# its own colour centre so subtype grading is learnable. Names sort
+# alphabetically (matching ImageFolder) and the malignant ones contain
+# "carcinoma" so the taxonomy auto-detects them.
+_SUBTYPE_CENTRES = {
+    "adenosis_benign": np.array([70, 150, 120], dtype=np.float32),      # teal
+    "ductal_carcinoma": np.array([185, 60, 90], dtype=np.float32),      # red
+    "fibroadenoma_benign": np.array([70, 110, 190], dtype=np.float32),  # blue
+    "lobular_carcinoma": np.array([180, 90, 170], dtype=np.float32),    # magenta
+}
+
+
+def _generate(centres: dict, per_class: int, size: int, seed: int) -> None:
     rng = np.random.default_rng(seed)
     total = 0
-    for cls, centre in _CENTRES.items():
+    for cls, centre in centres.items():
         out_dir = os.path.join(config.TRAIN_DIR, cls)
         os.makedirs(out_dir, exist_ok=True)
         for i in range(per_class):
-            img = _make_image(rng, centre, size)
-            img.save(os.path.join(out_dir, f"{cls.lower()}_{i:04d}.png"))
+            _make_image(rng, centre, size).save(os.path.join(out_dir, f"{cls.lower()}_{i:04d}.png"))
             total += 1
     print(f"[naseej] wrote {total} synthetic images "
-          f"({per_class}/class) -> {config.TRAIN_DIR}")
+          f"({per_class}/class, {len(centres)} classes) -> {config.TRAIN_DIR}")
     print("[naseej] SANITY FIXTURE ONLY — not real histopathology. "
-          "Verify layout with `python -m scripts.get_data`, then "
-          "`python -m src.train --no-pretrained --epochs 2`.")
+          "Verify with `python -m scripts.get_data`.")
+
+
+def generate(per_class: int = 80, size: int = 96, seed: int = config.SEED,
+             multiclass: bool = False) -> None:
+    _generate(_SUBTYPE_CENTRES if multiclass else _CENTRES, per_class, size, seed)
 
 
 def main() -> None:
@@ -76,8 +91,12 @@ def main() -> None:
     parser.add_argument("--per-class", type=int, default=80)
     parser.add_argument("--size", type=int, default=96)
     parser.add_argument("--seed", type=int, default=config.SEED)
+    parser.add_argument("--multiclass", action="store_true",
+                        help="generate 4 subtype folders (2 benign + 2 malignant) "
+                             "to exercise multi-class grading")
     args = parser.parse_args()
-    generate(per_class=args.per_class, size=args.size, seed=args.seed)
+    generate(per_class=args.per_class, size=args.size, seed=args.seed,
+             multiclass=args.multiclass)
 
 
 if __name__ == "__main__":

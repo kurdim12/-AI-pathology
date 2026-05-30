@@ -4,8 +4,10 @@ A living model card for the Naseej pathology-triage model. Fill the metric
 placeholders after training on your data; the framing below is fixed by design.
 
 ## Model details
-- **Task:** binary histopathology image classification (benign vs malignant)
-  with a triage layer (`URGENT` / `REVIEW` / `ROUTINE`) on top of P(malignant).
+- **Task:** histopathology image classification with a triage layer
+  (`URGENT` / `REVIEW` / `ROUTINE`) on top of P(malignant). Binary
+  (benign vs malignant) by default; optional multi-class **subtype grading**
+  that rolls up to the same benign/malignant triage decision.
 - **Architecture:** transfer learning from an ImageNet-pretrained CNN
   (ResNet-50 default; ResNet-18 / EfficientNet-B0 selectable) with a new 2-class
   head. Optional upgrade path to an open pathology foundation model (CTransPath /

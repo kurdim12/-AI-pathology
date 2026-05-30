@@ -61,9 +61,21 @@ _STRINGS = {
 
 
 def _line(strings: dict, result: "TriageResult") -> list[str]:
-    """Shared field rendering for one language."""
+    """Shared field rendering for one language.
+
+    In binary mode ``result.label`` is a localised class ('Benign'/'Malignant').
+    In multi-class mode it's a subtype name (e.g. 'lobular_carcinoma') that has
+    no translation — show it verbatim and add the benign/malignant rollup so the
+    triage meaning is still explicit in both languages.
+    """
+    if result.label in strings:                     # binary class
+        label_value = strings[result.label]
+    else:                                           # subtype: raw name + rollup
+        rollup = strings["Malignant"] if result.is_malignant_class else strings["Benign"]
+        pretty = result.label.replace("_", " ")
+        label_value = f"{pretty} ({rollup})"
     return [
-        f"{strings['label']}: {strings[result.label]}",
+        f"{strings['label']}: {label_value}",
         f"{strings['prob']}: {result.prob_malignant:.1%}",
         f"{strings['confidence']}: {result.confidence:.1%}",
         f"{strings['priority']}: {strings[result.priority]}",
@@ -94,11 +106,16 @@ def render_html(result: "TriageResult", lang: str = "bilingual") -> str:
 
     def block(code: str) -> str:
         s = _STRINGS[code]
+        if result.label in s:
+            label_value = s[result.label]
+        else:
+            rollup = s["Malignant"] if result.is_malignant_class else s["Benign"]
+            label_value = f"{result.label.replace('_', ' ')} ({rollup})"
         rows = "".join(
             f"<tr><td style='padding:4px 12px;color:#555'>{k}</td>"
             f"<td style='padding:4px 12px;font-weight:600'>{v}</td></tr>"
             for k, v in [
-                (s["label"], s[result.label]),
+                (s["label"], label_value),
                 (s["prob"], f"{result.prob_malignant:.1%}"),
                 (s["confidence"], f"{result.confidence:.1%}"),
                 (s["priority"], f"<span style='color:{color}'>{s[result.priority]}</span>"),

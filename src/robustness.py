@@ -65,9 +65,10 @@ def _val_paths_labels() -> tuple[list[str], list[int]]:
 
 @torch.no_grad()
 def _score(model, image: Image.Image, device: str) -> float:
+    from src.inference import malignant_probability
     tensor = eval_transforms()(image.convert("RGB")).unsqueeze(0).to(device)
     probs = softmax_with_temperature(model(tensor), model).squeeze(0)
-    return float(probs[config.MALIGNANT_INDEX].item())
+    return float(malignant_probability(probs).item())
 
 
 def evaluate_at_severity(
@@ -75,16 +76,17 @@ def evaluate_at_severity(
 ) -> dict:
     """Re-score the val set at one degradation severity; return triage metrics."""
     urgent_t, review_t = load_thresholds()
+    mal_idx = set(config.malignant_indices())
     probs, y = [], []
     for path, label in zip(paths, labels):
         img = Image.open(path)
         if severity > 0:
             img = degrade(img, severity)
         probs.append(_score(model, img, device))
-        y.append(int(label))
+        y.append(1 if int(label) in mal_idx else 0)  # collapse to binary
 
     probs_a, y_a = np.array(probs), np.array(y)
-    pos = y_a == config.MALIGNANT_INDEX
+    pos = y_a == 1
     neg = ~pos
 
     # Recall at the (calibrated) REVIEW cut-off = cancers still flagged.

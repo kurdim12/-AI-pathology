@@ -47,10 +47,13 @@ def test_health():
 
 
 def test_predict_single():
+    import config
+
     resp = client.post("/predict", files={"file": ("slide.png", _png_bytes(1), "image/png")})
     assert resp.status_code == 200
     body = resp.json()
-    assert body["label"] in ("Benign", "Malignant")
+    # label is a class name (binary or, with a multi-class checkpoint, a subtype).
+    assert body["label"] in config.CLASS_NAMES
     assert 0.0 <= body["prob_malignant"] <= 1.0
     assert body["priority"] in ("URGENT", "REVIEW", "ROUTINE")
     assert body["filename"] == "slide.png"

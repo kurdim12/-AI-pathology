@@ -42,7 +42,7 @@ jobs:
       - name: Run test suite
         run: python -m pytest tests/ -q
 
-      - name: End-to-end on synthetic data (no downloads)
+      - name: End-to-end (binary) on synthetic data (no downloads)
         run: |
           python -m scripts.make_demo_data --per-class 40
           python -m src.train --no-pretrained --epochs 1 --backbone resnet18
@@ -51,4 +51,13 @@ jobs:
           python -m src.calibrate --target-sensitivity 0.95 --robust 0.5
           python -m src.robustness --severities 0,0.5,1.0
           python -m src.triage data/train --csv outputs/worklist.csv
-          test -f outputs/thresholds.json && test -f outputs/worklist.csv && test -f outputs/robustness.json && echo "pipeline ok"
+          test -f outputs/thresholds.json && test -f outputs/worklist.csv && test -f outputs/robustness.json && echo "binary pipeline ok"
+
+      - name: End-to-end (multi-class subtype grading)
+        run: |
+          rm -rf data checkpoints outputs
+          python -m scripts.make_demo_data --multiclass --per-class 40
+          python -m src.train --no-pretrained --epochs 1 --backbone resnet18
+          python -m src.evaluate
+          python -m src.triage data/train --csv outputs/worklist.csv
+          test -f outputs/confusion_matrix_subtypes.png && echo "multi-class pipeline ok"

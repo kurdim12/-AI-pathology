@@ -45,10 +45,14 @@ from src.inference import load_model
 def sensitivity_specificity_at(
     labels: np.ndarray, probs: np.ndarray, threshold: float
 ) -> Tuple[float, float]:
-    """Malignant sensitivity and specificity if we call p >= threshold malignant."""
+    """Malignant sensitivity and specificity if we call p >= threshold malignant.
+
+    ``labels`` are binary (1 = malignant, 0 = benign), as produced by
+    ``collect_predictions`` / ``_degraded_predictions``.
+    """
     preds = probs >= threshold
-    pos = labels == config.MALIGNANT_INDEX
-    neg = labels == config.BENIGN_INDEX
+    pos = labels == 1
+    neg = labels == 0
 
     tp = int(np.sum(preds & pos))
     fn = int(np.sum(~preds & pos))
@@ -150,13 +154,16 @@ def _degraded_predictions(model, data_dir: str, severity: float, device: str):
     finally:
         config.TRAIN_DIR = prev
 
+    mal_idx = set(config.malignant_indices())
+    bin_labels = [1 if int(y) in mal_idx else 0 for y in labels]
+
     probs = []
     for path in paths:
         img = Image.open(path)
         if severity > 0:
             img = degrade(img, severity)
         probs.append(_score(model, img, device))
-    return _np.array(labels), _np.array(probs)
+    return _np.array(bin_labels), _np.array(probs)
 
 
 def main() -> None:

@@ -56,13 +56,14 @@ def load_thresholds(path: str = config.THRESHOLDS_PATH) -> Tuple[float, float]:
 class TriageResult:
     """Everything the demo/UI needs to render one decision."""
 
-    label: str                 # predicted class name
-    prob_malignant: float      # P(malignant) in [0, 1]
+    label: str                 # predicted class name (subtype, in multi-class)
+    prob_malignant: float      # P(malignant) in [0, 1] (summed over malignant classes)
     confidence: float          # P(predicted class) in [0, 1]
     priority: str              # URGENT / REVIEW / ROUTINE
     overlay: Optional[Image.Image] = None   # Grad-CAM blended on the slide
     heatmap: Optional[Image.Image] = None   # raw colourised heatmap
     trained: bool = True       # False -> running on un-fine-tuned weights
+    is_malignant_class: bool = False        # predicted class is a malignant subtype
 
 
 def load_model(
@@ -84,7 +85,15 @@ def load_model(
     if os.path.exists(checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
         backbone = checkpoint.get("backbone", config.BACKBONE)
-        model = build_model(backbone=backbone, pretrained=False)
+
+        # Restore the checkpoint's taxonomy so multi-class models load with the
+        # right head size and the correct malignant grouping for P(malignant).
+        class_names = checkpoint.get("class_names", config.CLASS_NAMES)
+        mal_classes = checkpoint.get("malignant_classes", config.MALIGNANT_CLASSES)
+        if class_names != config.CLASS_NAMES or list(mal_classes) != list(config.MALIGNANT_CLASSES):
+            config.use_multiclass(class_names, mal_classes)
+
+        model = build_model(backbone=backbone, num_classes=len(class_names), pretrained=False)
         model.load_state_dict(checkpoint["model_state"])
         temperature = float(checkpoint.get("temperature", 1.0))
         trained = True
@@ -114,6 +123,20 @@ def softmax_with_temperature(logits: torch.Tensor, model: torch.nn.Module) -> to
     """
     temperature = float(getattr(model, "temperature", 1.0))
     return F.softmax(logits / temperature, dim=1)
+
+
+def malignant_probability(probs: torch.Tensor) -> torch.Tensor:
+    """Collapse per-class probabilities to a single P(malignant).
+
+    Binary: this is just the malignant column. Multi-class (subtype grading):
+    the sum of the probabilities over all malignant subtypes. Accepts ``[C]`` or
+    ``[B, C]`` and returns a scalar tensor or ``[B]`` accordingly. This is the
+    one place the binary-vs-multiclass distinction is resolved, so triage,
+    calibration and robustness need no special-casing.
+    """
+    idx = config.malignant_indices()
+    dim = probs.dim() - 1
+    return probs.index_select(dim, torch.tensor(idx, device=probs.device)).sum(dim=dim)
 
 
 def triage_priority(
@@ -221,11 +244,17 @@ def analyze(
     heatmap_img: Optional[Image.Image] = None
 
     if with_heatmap:
-        # GradCAM does a forward pass (with gradients) on the canonical view and
-        # returns the logits, so the heatmap and its probability always agree.
+        # Explain the most-probable malignant class (in binary that's simply the
+        # malignant class). Pick it from a no-grad pass, then Grad-CAM on it so
+        # the heatmap highlights the tissue driving the malignancy signal.
+        with torch.no_grad():
+            pre = softmax_with_temperature(model(tensor), model).squeeze(0)
+        mal_idx = config.malignant_indices()
+        cam_target = max(mal_idx, key=lambda i: float(pre[i])) if mal_idx else int(pre.argmax())
+
         cam_engine = GradCAM(model, get_target_layer(model, backbone))
         try:
-            cam, logits = cam_engine(tensor, class_idx=config.MALIGNANT_INDEX)
+            cam, logits = cam_engine(tensor, class_idx=cam_target)
         finally:
             cam_engine.remove()
         cam_np = cam.squeeze(0).cpu().numpy()
@@ -238,7 +267,7 @@ def analyze(
     # TTA averages the *classification* probabilities; the heatmap stays on the
     # canonical view above (rotated heatmaps wouldn't align with the image).
     probs = (_tta_probs(model, tensor) if tta else canonical_probs).squeeze(0)
-    prob_malignant = float(probs[config.MALIGNANT_INDEX].item())
+    prob_malignant = float(malignant_probability(probs).item())
     pred_idx = int(torch.argmax(probs).item())
 
     urgent_t, review_t = thresholds if thresholds is not None else (None, None)
@@ -251,4 +280,5 @@ def analyze(
         overlay=overlay_img,
         heatmap=heatmap_img,
         trained=trained,
+        is_malignant_class=(pred_idx in config.malignant_indices()),
     )
