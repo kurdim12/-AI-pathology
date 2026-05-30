@@ -75,8 +75,10 @@ computational pathology *possible* where it is currently impossible.
   only clean scanner output. This is the key difference from scanner-only tools.
 - **Explainability:** a from-scratch Grad-CAM implementation (`src/gradcam.py`).
 - **Upgrade path:** swap the backbone for an open pathology foundation model
-  (CTransPath, Phikon, UNI) for state-of-the-art features with little extra data —
-  see the stub in `src/model.py`.
+  (CTransPath, Phikon, UNI) for state-of-the-art features with little extra data
+  — `build_foundation_model` in `src/model.py` is a real, optional `timm`-based
+  loader (set `config.FOUNDATION_MODEL`); Grad-CAM finds the target layer
+  automatically.
 
 **This is not an API wrapper.** The proprietary work is the fine-tuning, the
 phone-robustness pipeline, and the triage logic — all in this repo.
@@ -105,19 +107,25 @@ phone-robustness pipeline, and the triage logic — all in this repo.
 ```
 naseej/
 ├── README.md            ← this file
+├── MODEL_CARD.md        ← intended use, data, metrics, limitations, ethics
+├── Dockerfile           ← containerised demo
 ├── requirements.txt
 ├── config.py            ← all tunable settings
 ├── src/
-│   ├── model.py         ← backbone + classification head (+ foundation-model stub)
+│   ├── model.py         ← backbone + classification head (+ foundation-model loader)
 │   ├── data.py          ← data loading + phone-capture augmentations
 │   ├── gradcam.py       ← Grad-CAM (explainability)
 │   ├── inference.py     ← predict + triage priority + heatmap overlay
-│   ├── train.py         ← training (recall-prioritised)
+│   ├── triage.py        ← batch triage queue → prioritised worklist (CLI)
+│   ├── train.py         ← training (recall-prioritised, two-phase, early stop)
 │   └── evaluate.py      ← sensitivity / specificity / AUC / confusion matrix
 ├── app/
-│   └── app.py           ← Gradio demo (the booth interface)
-└── scripts/
-    └── get_data.py      ← dataset layout helper
+│   └── app.py           ← Gradio demo (single slide + triage-queue tabs)
+├── scripts/
+│   ├── get_data.py      ← dataset layout helper
+│   └── download_pcam.py ← automated public-dataset download (PatchCamelyon)
+├── tests/               ← CPU smoke tests (no dataset / no downloads)
+└── .github/workflows/   ← CI (runs the tests on every push)
 ```
 
 ## 7. Setup
@@ -146,7 +154,15 @@ Verify the layout:
 python -m scripts.get_data
 ```
 
-(Alternatives: PatchCamelyon, LC25000 — also public.)
+**Automated option (no access form):** PatchCamelyon downloads directly via
+torchvision and is exported straight into the layout above —
+
+```bash
+python -m scripts.download_pcam --per-class 1500   # quick start
+python -m scripts.download_pcam --full             # everything (large)
+```
+
+(Alternatives: BreaKHis as above, LC25000 — also public.)
 
 ## 9. Train
 
@@ -171,9 +187,30 @@ plus specificity, AUC, accuracy, and the confusion matrix.
 python -m app.app
 ```
 
-Open the printed local URL, upload a slide image, and see the label, confidence,
-triage badge, and Grad-CAM heatmap. This is the booth demo: a judge can upload an
-image (or a phone photo of one) and watch the system flag it live.
+Open the printed local URL. Two tabs:
+- **Single slide** — upload one image (or a phone photo of one) and see the
+  label, confidence, triage badge, and Grad-CAM heatmap, live.
+- **Triage queue** — upload many slides and get a prioritised worklist back,
+  most-urgent first.
+
+### Triage a whole queue (CLI)
+
+The product is re-ordering the queue. Point Naseej at a folder of slides and get
+a sorted worklist (URGENT → ROUTINE), written to CSV:
+
+```bash
+python -m src.triage path/to/folder --csv outputs/worklist.csv --save-overlays
+python -m src.triage path/to/one_slide.png          # single slide
+```
+
+### Run with Docker
+
+```bash
+docker build -t naseej .
+docker run -p 7860:7860 \
+  -v "$PWD/checkpoints:/app/checkpoints" \   # mount a trained checkpoint
+  naseej
+```
 
 ## 12. Results
 
@@ -186,6 +223,17 @@ image (or a phone photo of one) and watch the system flag it live.
 | Specificity | _TODO_ |
 | AUC | _TODO_ |
 | Accuracy | _TODO_ |
+
+See [`MODEL_CARD.md`](MODEL_CARD.md) for intended use, training data, metrics,
+limitations, and ethics in one place.
+
+### Tests
+
+CPU smoke tests run without any dataset or downloads (and in CI on every push):
+
+```bash
+python -m pytest tests/ -q
+```
 
 ## 13. Limitations & honest framing
 

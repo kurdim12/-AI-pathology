@@ -60,6 +60,29 @@ SEED = 42
 # Order matches CLASS_NAMES: [benign_weight, malignant_weight].
 CLASS_WEIGHTS = [1.0, 2.0]
 
+# Two-phase fine-tuning: train only the new head for WARMUP_EPOCHS (backbone
+# frozen) so the random head settles before we perturb the pretrained features,
+# then unfreeze and fine-tune the whole network. Set to 0 to disable.
+WARMUP_EPOCHS = 2
+
+# Early stopping: stop if validation AUC hasn't improved for this many epochs.
+# Set to 0 to disable and always run the full EPOCHS.
+EARLY_STOP_PATIENCE = 5
+
+# Mixed-precision training (only used when running on CUDA; ignored on CPU).
+USE_AMP = True
+
+# --------------------------------------------------------------------------- #
+# Foundation-model upgrade path (optional)
+# --------------------------------------------------------------------------- #
+# When set, src.model.build_foundation_model can load an open pathology / vision
+# foundation backbone via `timm` instead of a torchvision CNN. Examples:
+#   FOUNDATION_MODEL = "timm:vit_base_patch16_224"
+#   FOUNDATION_MODEL = "timm:convnext_tiny"
+# FOUNDATION_WEIGHTS may point at local released weights (e.g. CTransPath/UNI).
+FOUNDATION_MODEL = None
+FOUNDATION_WEIGHTS = None
+
 # --------------------------------------------------------------------------- #
 # Triage thresholds (applied to P(malignant))
 # --------------------------------------------------------------------------- #

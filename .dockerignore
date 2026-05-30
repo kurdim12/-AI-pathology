@@ -1,0 +1,15 @@
+.git
+.gitignore
+.venv
+venv
+env
+__pycache__
+*.pyc
+data
+checkpoints
+outputs
+flagged
+gradio_cached_examples
+.github
+*.md
+!README.md

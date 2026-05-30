@@ -13,6 +13,7 @@ model is included as the documented upgrade path.
 
 from __future__ import annotations
 
+import torch
 import torch.nn as nn
 from torchvision import models
 
@@ -110,27 +111,112 @@ def get_target_layer(model: nn.Module, backbone: str = config.BACKBONE) -> nn.Mo
         return model.layer4[-1]
     if name == "efficientnet_b0":
         return model.features[-1]
-    raise ValueError(f"Unsupported backbone {backbone!r}.")
+    # Unknown backbone (e.g. a timm foundation model): find it by probing.
+    return autodetect_target_layer(model)
 
 
-def build_foundation_model(name: str = "ctranspath", num_classes: int = len(config.CLASS_NAMES)):
-    """Upgrade path (stub): swap the ImageNet backbone for an open pathology
-    foundation model.
+def autodetect_target_layer(model: nn.Module, input_size: int = config.IMAGE_SIZE) -> nn.Module:
+    """Find the last module that emits a 4D feature map for Grad-CAM.
+
+    For backbones we don't recognise explicitly, run a dummy forward pass and
+    pick the last leaf module whose output is ``[B, C, H, W]`` with spatial
+    extent > 1 — the natural place to hook a class-activation map.
+    """
+    try:
+        device = next(model.parameters()).device
+    except StopIteration:  # pragma: no cover - model with no params
+        device = torch.device("cpu")
+
+    candidates: list[nn.Module] = []
+    handles = []
+
+    def _hook(module, inputs, output):
+        out = output[0] if isinstance(output, (tuple, list)) and output else output
+        if torch.is_tensor(out) and out.dim() == 4 and out.shape[2] > 1 and out.shape[3] > 1:
+            candidates.append(module)
+
+    for module in model.modules():
+        if len(list(module.children())) == 0:  # leaf modules only
+            handles.append(module.register_forward_hook(_hook))
+
+    was_training = model.training
+    model.eval()
+    try:
+        with torch.no_grad():
+            model(torch.zeros(1, 3, input_size, input_size, device=device))
+    finally:
+        for handle in handles:
+            handle.remove()
+        if was_training:
+            model.train()
+
+    if not candidates:
+        raise RuntimeError(
+            "Could not autodetect a 4D feature map for Grad-CAM. "
+            "Pass an explicit target layer for this backbone."
+        )
+    return candidates[-1]
+
+
+def build_foundation_model(
+    name: str | None = None,
+    num_classes: int = len(config.CLASS_NAMES),
+    weights_path: str | None = None,
+) -> nn.Module:
+    """Upgrade path (optional, real): swap the ImageNet CNN for an open
+    vision / pathology foundation backbone via ``timm``.
 
     Models such as CTransPath, Phikon and UNI are pretrained on millions of
-    histopathology patches and give state-of-the-art features with very little
-    extra data. To wire one in:
+    histopathology patches and give state-of-the-art features with little extra
+    data. This loader keeps ``timm`` out of the core dependencies — it is only
+    imported when you actually opt in.
 
-        1. ``pip install`` the relevant package / download the released weights.
-        2. Load the encoder and expose its final feature map for Grad-CAM.
-        3. Attach an ``nn.Linear(feature_dim, num_classes)`` head.
-        4. Point ``get_target_layer`` at the encoder's last spatial block.
+    Usage::
 
-    This is intentionally left as a stub: it documents the path without pulling
-    a heavy dependency into the core demo.
+        # config.FOUNDATION_MODEL = "timm:convnext_tiny"
+        model = build_foundation_model()                 # reads config
+        model = build_foundation_model("timm:vit_base_patch16_224")
+
+        # released pathology weights downloaded locally:
+        model = build_foundation_model(
+            "timm:swin_tiny_patch4_window7_224",
+            weights_path="weights/ctranspath.pth",
+        )
+
+    Grad-CAM works on these models via :func:`autodetect_target_layer` (best on
+    convolutional / hybrid backbones; pure ViTs expose no native spatial map).
     """
-    raise NotImplementedError(
-        "Foundation-model backbone is the documented upgrade path. "
-        "Load CTransPath / Phikon / UNI weights here and attach a 2-class head. "
-        "See README §4 (Upgrade path) and src/model.py:build_foundation_model."
+    name = name or config.FOUNDATION_MODEL
+    weights_path = weights_path or config.FOUNDATION_WEIGHTS
+
+    if not name:
+        raise ValueError(
+            "No foundation model specified. Set config.FOUNDATION_MODEL "
+            '(e.g. "timm:convnext_tiny") or pass name=...'
+        )
+    if not name.startswith("timm:"):
+        raise ValueError('Foundation model name must be of the form "timm:<model_name>".')
+
+    try:
+        import timm
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "The foundation-model path needs `timm` (pip install timm). "
+            "The default CNN backbones do not require it."
+        ) from exc
+
+    timm_name = name.split("timm:", 1)[1]
+    # If loading released weights ourselves, don't also pull timm's pretrained.
+    model = timm.create_model(
+        timm_name, pretrained=(weights_path is None), num_classes=num_classes
     )
+
+    if weights_path:
+        state = torch.load(weights_path, map_location="cpu", weights_only=False)
+        state = state.get("model", state.get("state_dict", state))
+        missing, unexpected = model.load_state_dict(state, strict=False)
+        print(
+            f"[naseej] loaded foundation weights from {weights_path}: "
+            f"{len(missing)} missing / {len(unexpected)} unexpected keys"
+        )
+    return model

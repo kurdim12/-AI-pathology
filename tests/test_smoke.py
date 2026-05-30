@@ -43,16 +43,19 @@ def test_all_backbones_forward():
 
 
 def test_gradcam_shape_and_range():
-    model = build_model(backbone="resnet18", pretrained=False).eval()
-    cam_engine = GradCAM(model, get_target_layer(model, "resnet18"))
+    # Cover every backbone via the real get_target_layer path the demo uses
+    # (EfficientNet's in-place SiLU is the tricky one for backward hooks).
     x = torch.randn(1, 3, config.IMAGE_SIZE, config.IMAGE_SIZE)
-    cam, logits = cam_engine(x, class_idx=config.MALIGNANT_INDEX)
-    cam_engine.remove()
+    for backbone in SUPPORTED_BACKBONES:
+        model = build_model(backbone=backbone, pretrained=False).eval()
+        cam_engine = GradCAM(model, get_target_layer(model, backbone))
+        cam, logits = cam_engine(x, class_idx=config.MALIGNANT_INDEX)
+        cam_engine.remove()
 
-    assert cam.shape == (1, config.IMAGE_SIZE, config.IMAGE_SIZE)
-    assert logits.shape == (1, len(config.CLASS_NAMES))
-    assert float(cam.min()) >= 0.0 - 1e-6
-    assert float(cam.max()) <= 1.0 + 1e-6
+        assert cam.shape == (1, config.IMAGE_SIZE, config.IMAGE_SIZE), backbone
+        assert logits.shape == (1, len(config.CLASS_NAMES)), backbone
+        assert float(cam.min()) >= 0.0 - 1e-6, backbone
+        assert float(cam.max()) <= 1.0 + 1e-6, backbone
 
 
 def test_transforms_output_shape():

@@ -39,6 +39,15 @@ class GradCAM:
         self.activations: Optional[torch.Tensor] = None
         self.gradients: Optional[torch.Tensor] = None
 
+        # In-place activations (e.g. EfficientNet's SiLU(inplace=True)) clash
+        # with backward hooks — autograd refuses to track a view modified in
+        # place. Temporarily switch them off; restored in remove().
+        self._toggled_inplace = []
+        for module in model.modules():
+            if getattr(module, "inplace", False):
+                module.inplace = False
+                self._toggled_inplace.append(module)
+
         self._handles = [
             target_layer.register_forward_hook(self._save_activation),
             target_layer.register_full_backward_hook(self._save_gradient),
@@ -116,10 +125,13 @@ class GradCAM:
         return cam.detach(), logits.detach()
 
     def remove(self) -> None:
-        """Detach the forward/backward hooks. Call when finished."""
+        """Detach the hooks and restore in-place activations. Call when done."""
         for handle in self._handles:
             handle.remove()
         self._handles = []
+        for module in self._toggled_inplace:
+            module.inplace = True
+        self._toggled_inplace = []
 
     def __enter__(self) -> "GradCAM":
         return self
