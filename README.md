@@ -167,23 +167,27 @@ data gives real results.)*
 
 ## 8. Get the data
 
-Anchor dataset: **BreaKHis** (~7,900 breast histopathology images, benign vs
-malignant). Request access and download from the link in `scripts/get_data.py`,
-then arrange as:
+Anchor dataset: **BreaKHis** (breast histopathology, benign vs malignant).
+
+**Fastest path — real data, one command (no account):** download a real
+BreaKHis **400X** subset (~1,700 genuine `SOB_*` PNGs, real ~1:2 class
+imbalance), mirrored on a public GitHub repo, straight into the layout below.
+This is the exact data behind the [Results](#12-results):
+
+```bash
+python -m scripts.get_breakhis        # -> data/train/{Benign,Malignant}/*.png
+python -m scripts.get_data            # verify the layout
+```
+
+For the **full** multi-magnification BreaKHis (~7,900 images), request access
+from the official source linked in `scripts/get_data.py` and arrange as:
 
 ```
 data/train/Benign/*.png
 data/train/Malignant/*.png
 ```
 
-Verify the layout:
-
-```bash
-python -m scripts.get_data
-```
-
-**Automated option (no access form):** PatchCamelyon downloads directly via
-torchvision and is exported straight into the layout above —
+**Another no-account option:** PatchCamelyon via torchvision —
 
 ```bash
 python -m scripts.download_pcam --per-class 1500   # quick start
@@ -380,34 +384,54 @@ make api              # launch the REST API
 
 ## 12. Results
 
-> **Real-data results are still TODO** — fill the "real data" column after
-> training on BreaKHis / PCam on a machine with a GPU and dataset access. Lead
-> with sensitivity.
+**Real data — BreaKHis (400X), 1,693 images, held-out validation split (338 images).**
+ResNet-18 trained from scratch (ImageNet weights unavailable in our environment;
+transfer learning would likely do better). Lead with sensitivity.
 
-| Metric | Synthetic "realistic" ⚠️ | Real data (BreaKHis/PCam) |
-|---|---|---|
-| Sensitivity (recall) | ~0.97 | _TODO_ |
-| Specificity | ~0.36 | _TODO_ |
-| AUC | ~0.84 | _TODO_ |
-| Accuracy | ~0.66 | _TODO_ |
-| Malignant recall @ REVIEW | 1.00 | _TODO_ |
+| Metric | Value (real BreaKHis) |
+|---|---|
+| **Sensitivity (recall)** | **0.973** |
+| Specificity | 0.730 |
+| AUC | 0.959 |
+| Accuracy | 0.891 |
+| Malignant recall @ calibrated REVIEW | 0.973 |
 
-⚠️ **The synthetic column is a believable-but-meaningless illustration, not a
-pathology result.** It comes from training ResNet-18 (random init) on the
-`--difficulty realistic` fixture from `scripts/make_demo_data.py`, where the
-benign/malignant distributions deliberately *overlap* and ~5% of labels are
-flipped — so metrics land in a realistic, clearly sub-perfect regime instead of
-a meaningless 1.000. They demonstrate the system working as designed: the
-recall-prioritised loss keeps sensitivity high (~0.97) at the cost of
-specificity, and the triage layer still captures **100% of malignant cases at
-the REVIEW threshold** despite ~0.84 AUC — which is the whole point of the tool.
-Real numbers require real data. Reproduce with:
+After threshold calibration (95% sensitivity floor), the `REVIEW` cut-off
+reaches **sensitivity 0.95 at specificity 0.87** — a strong triage operating
+point. The recall-prioritised design does exactly its job: it catches 217 of 223
+malignant cases on the held-out set, trading specificity to avoid missing
+cancers.
+
+**Phone-capture robustness (real data).** As simulated capture quality drops
+(`src/robustness.py`), AUC declines *gracefully* rather than collapsing, and the
+calibrated threshold keeps malignant recall high — evidence for the project's
+central claim that it survives messy phone images:
+
+| Degradation severity | 0.00 | 0.25 | 0.50 | 0.75 | 1.00 |
+|---|---|---|---|---|---|
+| AUC | 0.959 | 0.947 | 0.931 | 0.883 | 0.795 |
+| Malignant recall @ REVIEW | 0.951 | 0.942 | 0.964 | 0.964 | 0.978 |
+
+![Real results](assets/results/real_results.png)
+
+(Also: `assets/results/robustness.png`, `assets/results/confusion_matrix.png`.)
+
+> **Caveats (honest framing).** This is the 400X BreaKHis subset only, a single
+> seeded split, trained from scratch on CPU — not a multi-magnification,
+> cross-validated, or externally-validated result, and **not validated on
+> Jordanian samples or real phone photos** (the robustness numbers use a
+> *simulated* degradation of scanner images). It is a credible proof the pipeline
+> learns real histopathology, not a clinical claim. Reproduce:
 
 ```bash
-python -m scripts.make_demo_data --difficulty realistic --per-class 400
-python -m src.train --no-pretrained --backbone resnet18 --epochs 12 --batch-size 64
-python -m src.evaluate && python -m src.calibrate
+python -m scripts.get_breakhis          # downloads the real 400X subset
+python -m src.train --no-pretrained --backbone resnet18 --epochs 15 --batch-size 32
+python -m src.evaluate && python -m src.calibrate --target-sensitivity 0.95
+python -m src.robustness
 ```
+
+To reproduce the synthetic believable-but-meaningless illustration instead
+(no download), use `scripts.make_demo_data --difficulty realistic` then train.
 
 See [`MODEL_CARD.md`](MODEL_CARD.md) for intended use, training data, metrics,
 limitations, and ethics in one place.

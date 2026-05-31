@@ -2,28 +2,31 @@
 
 Status legend: ✅ done · 🔶 in progress · ⬜ not started · 🔴 blocked
 
-## PHASE A — REAL DATA (top priority)
-- 🔶 A1. Acquire a real histopathology dataset (BreaKHis / PCam / PathMNIST / other)
-- ⬜ A2. Train on real data; fill the README Results table with real numbers
-- ⬜ A3. Calibrate thresholds + run robustness benchmark on real data
-- ⬜ A4. Record real metrics in MODEL_CARD.md
+## PHASE A — REAL DATA (top priority) ✅ DONE
+- ✅ A1. Acquired REAL BreaKHis 400X (1,693 images) via scripts/get_breakhis.py
+        (public GitHub mirror — no account, fully turnkey)
+- ✅ A2. Trained on real data; README Results table filled with real numbers
+        (AUC 0.959, sensitivity 0.973 on 338 held-out images)
+- ✅ A3. Calibrated thresholds (sens 0.95 / spec 0.87) + robustness benchmark on real data
+- ✅ A4. Recorded real metrics in MODEL_CARD.md
 
-## PHASE B — TEST THE UNTESTED CORE
-- ⬜ B1. Unit tests for src/train.py (validate(), temperature fit, two-phase, early stop)
-- ⬜ B2. Unit tests for src/evaluate.py (compute_metrics, triage_breakdown, json export)
-- ⬜ B3. Test the foundation-model loader (src/model.build_foundation_model, timm)
+## PHASE B — TEST THE UNTESTED CORE ✅ DONE
+- ✅ B1. tests/test_train.py (validate binary+multiclass, temperature roundtrip, two-phase)
+- ✅ B2. tests/test_evaluate.py (compute_metrics, triage_breakdown, collect_predictions)
+- ✅ B3. tests/test_foundation.py (loader contract + real build when timm present)
 
-## PHASE C — PACKAGING & HYGIENE
-- ⬜ C1. pyproject.toml (installable package + metadata)
-- ⬜ C2. Pin dependency versions (upper bounds) in requirements + pyproject
-- ⬜ C3. Console entry-points (naseej-train, naseej-triage, naseej-eval, ...)
-- ⬜ C4. CONTRIBUTING.md, CHANGELOG.md
-- ⬜ C5. Linting/format config (ruff) + pre-commit, wire into CI
+## PHASE C — PACKAGING & HYGIENE ✅ DONE
+- ✅ C1. pyproject.toml (installable package + metadata + classifiers)
+- ✅ C2. Pinned dependency bounds in pyproject (core + optional extras)
+- ✅ C3. Console entry-points (naseej-train/eval/calibrate/triage/robustness/demo)
+- ✅ C4. CONTRIBUTING.md (CHANGELOG: optional, deferred)
+- ✅ C5. ruff config + .pre-commit-config.yaml (CI wiring: see D)
 
-## PHASE D — REAL-DATA READINESS (turnkey for the user's machine)
-- ⬜ D1. Colab/Jupyter notebook: clone → data → train → eval → demo
-- ⬜ D2. results-export script that auto-fills the README Results table
-- ⬜ D3. Checkpoint resume / GPU-aware config polish
+## PHASE D — REAL-DATA READINESS (turnkey)
+- ✅ D-core. scripts/get_breakhis.py makes the real run one command
+- ⬜ D1. Colab/Jupyter notebook (nice-to-have; CLI path already turnkey)
+- ⬜ D2. results-export script that auto-fills the README table
+- ⬜ D3. Add ruff lint + a real-data smoke job to CI; CHANGELOG.md
 
-(Owner notes: the actual large-scale real training run needs the user's
-hardware/internet; everything here makes that one run turnkey and trustworthy.)
+Remaining (lower priority): D1/D2/D3 polish. Core project is now validated on
+real data, tested, and installable.

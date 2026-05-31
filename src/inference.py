@@ -34,13 +34,16 @@ PRIORITY_REVIEW = "REVIEW"
 PRIORITY_ROUTINE = "ROUTINE"
 
 
-def load_thresholds(path: str = config.THRESHOLDS_PATH) -> tuple[float, float]:
+def load_thresholds(path: str | None = None) -> tuple[float, float]:
     """Return ``(urgent_threshold, review_threshold)``.
 
     Prefers the calibrated values written by ``src.calibrate`` (so a freshly
     calibrated operating point is used automatically); falls back to the
-    defaults in ``config`` when no calibration file exists.
+    defaults in ``config`` when no calibration file exists. ``path`` is resolved
+    from ``config.THRESHOLDS_PATH`` at call time (not bound at import).
     """
+    if path is None:
+        path = config.THRESHOLDS_PATH
     if os.path.exists(path):
         try:
             with open(path) as fh:

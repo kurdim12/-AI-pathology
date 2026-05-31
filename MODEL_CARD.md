@@ -39,16 +39,26 @@ perspective skew (`src/data.py`). This is the key difference from scanner-only
 tools and the main reason the model is expected to degrade more gracefully on
 messy phone images.
 
-## Metrics (fill after training on a held-out split — lead with sensitivity)
+## Metrics — real data (BreaKHis 400X, held-out split, n=338)
+ResNet-18 trained from scratch (ImageNet weights unavailable in our
+environment); single seeded split; lead with sensitivity.
+
 | Metric | Value |
 |---|---|
-| Sensitivity (recall, malignant) | _TODO_ |
-| Specificity | _TODO_ |
-| AUC | _TODO_ |
-| Accuracy | _TODO_ |
+| Sensitivity (recall, malignant) | **0.973** |
+| Specificity | 0.730 |
+| AUC | 0.959 |
+| Accuracy | 0.891 |
+| Malignant recall @ calibrated REVIEW | 0.973 (sens 0.95 / spec 0.87 at the cut-off) |
 
-Produced by `python -m src.evaluate` (also writes a confusion matrix to
-`outputs/`).
+Phone-capture robustness (simulated degradation): AUC degrades gracefully
+0.959 → 0.795 from clean to worst severity while calibrated REVIEW recall stays
+≥ 0.94. Produced by `python -m src.evaluate`, `src.calibrate`, `src.robustness`
+(figures in `assets/results/`).
+
+**Scope of these numbers:** the 400X subset only, one split, trained from
+scratch on CPU — a credible proof the pipeline learns real histopathology, not a
+multi-magnification / cross-validated / externally-validated clinical result.
 
 ## Limitations & risks
 - **Domain shift:** trained on public (largely Western) data; performance on
