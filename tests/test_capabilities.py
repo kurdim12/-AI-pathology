@@ -18,7 +18,6 @@ from PIL import Image
 import config
 from src.inference import (
     PRIORITY_REVIEW,
-    PRIORITY_ROUTINE,
     PRIORITY_URGENT,
     _result_from_probs,
     analyze,
@@ -26,7 +25,6 @@ from src.inference import (
 )
 from src.model import build_model
 from src.quality import assess_quality
-
 
 # ---- quality gating ------------------------------------------------------ #
 

@@ -24,7 +24,6 @@ from src.inference import TriageResult, analyze, malignant_probability
 from src.model import build_model
 from src.report import render_bilingual_text, render_html
 
-
 # A 4-way taxonomy: 2 benign + 2 malignant (alphabetical, matching ImageFolder).
 MC_CLASSES = ["adenosis_benign", "ductal_carcinoma", "fibroadenoma_benign", "lobular_carcinoma"]
 MC_MALIGNANT = ["ductal_carcinoma", "lobular_carcinoma"]

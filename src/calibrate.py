@@ -32,7 +32,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from typing import Dict, List, Tuple
 
 import numpy as np
 
@@ -44,7 +43,7 @@ from src.inference import load_model
 
 def sensitivity_specificity_at(
     labels: np.ndarray, probs: np.ndarray, threshold: float
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """Malignant sensitivity and specificity if we call p >= threshold malignant.
 
     ``labels`` are binary (1 = malignant, 0 = benign), as produced by
@@ -64,7 +63,7 @@ def sensitivity_specificity_at(
     return sensitivity, specificity
 
 
-def _candidate_thresholds(probs: np.ndarray) -> List[float]:
+def _candidate_thresholds(probs: np.ndarray) -> list[float]:
     """Distinct cut-offs to evaluate: just below each observed probability.
 
     Subtracting a tiny epsilon makes ``p >= t`` flip exactly at the observed
@@ -80,7 +79,7 @@ def calibrate_thresholds(
     labels: np.ndarray,
     probs: np.ndarray,
     target_sensitivity: float = config.TARGET_SENSITIVITY,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Pick (review, urgent) cut-offs from labelled validation predictions.
 
     Returns a dict with the chosen thresholds and the operating characteristics
@@ -127,7 +126,7 @@ def calibrate_thresholds(
     }
 
 
-def save_thresholds(thresholds: Dict[str, float], path: str = config.THRESHOLDS_PATH) -> None:
+def save_thresholds(thresholds: dict[str, float], path: str = config.THRESHOLDS_PATH) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w") as fh:
         json.dump(thresholds, fh, indent=2)

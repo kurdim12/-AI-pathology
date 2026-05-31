@@ -12,12 +12,11 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-import config
 from src.inference import TriageResult
+from src.model import build_model
 from src.phone_sim import PhoneConditions, apply_conditions, degrade
 from src.report import render_bilingual_text, render_html, render_text
 from src.robustness import evaluate_at_severity
-from src.model import build_model
 
 
 def _img(seed: int = 0, size: int = 96) -> Image.Image:
@@ -57,7 +56,8 @@ def test_zero_conditions_is_near_identity():
 def test_evaluate_at_severity_shape():
     model = build_model(backbone="resnet18", pretrained=False).eval()
     # Build a tiny in-memory val set on disk-free paths by writing temp files.
-    import os, tempfile
+    import os
+    import tempfile
     with tempfile.TemporaryDirectory() as d:
         paths, labels = [], []
         for i in range(6):

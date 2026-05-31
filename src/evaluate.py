@@ -184,7 +184,7 @@ def print_report(metrics: dict, breakdown: dict | None = None) -> None:
     print(f"  AUC                  : {metrics['auc']:.4f}")
     print(f"  Accuracy             : {metrics['accuracy']:.4f}")
     print("  ---- confusion matrix (threshold 0.5) ----")
-    print(f"                 pred Benign   pred Malignant")
+    print("                 pred Benign   pred Malignant")
     print(f"  true Benign        {tn:6d}          {fp:6d}")
     print(f"  true Malignant     {fn:6d}          {tp:6d}")
     if breakdown is not None:
@@ -263,5 +263,10 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-if __name__ == "__main__":
+def _cli() -> None:
+    """Console entry-point (naseej-eval)."""
     main(_parse_args())
+
+
+if __name__ == "__main__":
+    _cli()

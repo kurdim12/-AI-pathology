@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from typing import List
 
 import numpy as np
 import torch
@@ -35,7 +34,6 @@ from src.inference import (
     load_model,
     load_thresholds,
     softmax_with_temperature,
-    triage_priority,
 )
 from src.phone_sim import degrade
 
@@ -75,7 +73,7 @@ def _score(model, image: Image.Image, device: str) -> float:
 
 
 def evaluate_at_severity(
-    model, paths: List[str], labels: List[int], severity: float, device: str
+    model, paths: list[str], labels: list[int], severity: float, device: str
 ) -> dict:
     """Re-score the val set at one degradation severity; return triage metrics."""
     urgent_t, review_t = load_thresholds()
@@ -113,7 +111,7 @@ def evaluate_at_severity(
     }
 
 
-def save_curve(results: List[dict], out_path: str) -> None:
+def save_curve(results: list[dict], out_path: str) -> None:
     try:
         import matplotlib
 
@@ -139,7 +137,7 @@ def save_curve(results: List[dict], out_path: str) -> None:
     plt.close(fig)
 
 
-def print_report(results: List[dict]) -> None:
+def print_report(results: list[dict]) -> None:
     print("\n============ Naseej · phone-capture robustness ============")
     print(f"  {'severity':>8}  {'recall@REVIEW':>13}  {'AUC':>6}  {'spec@.5':>7}  {'missed':>6}")
     for r in results:
@@ -190,5 +188,10 @@ def _parse_args() -> argparse.Namespace:
     return args
 
 
-if __name__ == "__main__":
+def _cli() -> None:
+    """Console entry-point (naseej-robustness)."""
     main(_parse_args())
+
+
+if __name__ == "__main__":
+    _cli()

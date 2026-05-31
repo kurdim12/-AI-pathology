@@ -24,7 +24,6 @@ clear message. The core demo (``app/app.py``) does not need it.
 from __future__ import annotations
 
 import io
-from typing import List
 
 try:
     from fastapi import FastAPI, File, UploadFile
@@ -36,7 +35,6 @@ except ImportError as exc:  # pragma: no cover - optional dependency
 
 from PIL import Image
 
-import config
 from src.inference import analyze, load_model, load_thresholds
 from src.triage import worklist_from_paths  # noqa: F401  (kept for parity / future use)
 
@@ -92,7 +90,7 @@ async def predict(file: UploadFile = File(...)) -> dict:
 
 
 @app.post("/triage")
-async def triage(files: List[UploadFile] = File(...)) -> dict:
+async def triage(files: list[UploadFile] = File(...)) -> dict:
     """Triage a batch and return a worklist sorted most-urgent-first."""
     rows = []
     for f in files:

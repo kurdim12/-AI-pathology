@@ -16,7 +16,6 @@ import os
 import tempfile
 
 import numpy as np
-from PIL import Image
 
 import config
 import scripts.make_demo_data as mdd

@@ -39,7 +39,7 @@ class PhoneConditions:
     color_shift: float = 0.0    # 0 = unchanged; fraction of saturation/hue cast
 
     @classmethod
-    def from_severity(cls, severity: float) -> "PhoneConditions":
+    def from_severity(cls, severity: float) -> PhoneConditions:
         """Map a single 0..1 severity to a sensible bundle of degradations."""
         s = max(0.0, min(1.0, severity))
         return cls(

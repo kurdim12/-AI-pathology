@@ -19,7 +19,6 @@ from src.inference import analyze, softmax_with_temperature
 from src.model import build_model
 from src.temperature import (
     calibration_report,
-    expected_calibration_error,
     fit_temperature,
 )
 

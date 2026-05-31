@@ -17,7 +17,6 @@ Expected layout (see scripts/get_data.py)::
 from __future__ import annotations
 
 import os
-from typing import Tuple
 
 import torch
 from torch.utils.data import DataLoader, Subset
@@ -91,7 +90,7 @@ def build_dataloaders(
     val_split: float = config.VAL_SPLIT,
     num_workers: int = config.NUM_WORKERS,
     seed: int = config.SEED,
-) -> Tuple[DataLoader, DataLoader, list]:
+) -> tuple[DataLoader, DataLoader, list]:
     """Build train/val dataloaders from a single labelled folder.
 
     The same images are wrapped by two ImageFolder views — one with the noisy

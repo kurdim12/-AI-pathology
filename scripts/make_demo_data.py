@@ -107,7 +107,6 @@ def _make_image(rng: np.random.Generator, sig: dict, size: int, hardness: float)
 def _generate(signatures: dict, per_class: int, size: int, seed: int,
               hardness: float, label_noise: float) -> None:
     rng = np.random.default_rng(seed)
-    class_names = list(signatures.values())
     names = list(signatures.keys())
 
     # Pools of alternative class indices for label-noise reassignment, split by

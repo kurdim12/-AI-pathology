@@ -21,7 +21,6 @@ import csv
 import os
 from dataclasses import asdict, dataclass
 from glob import glob
-from typing import List, Optional
 
 from PIL import Image
 
@@ -47,9 +46,9 @@ class WorklistItem:
     priority: str
 
 
-def list_images(folder: str) -> List[str]:
+def list_images(folder: str) -> list[str]:
     """Return sorted image paths under ``folder`` (non-recursive then recursive)."""
-    paths: List[str] = []
+    paths: list[str] = []
     for ext in IMAGE_EXTS:
         paths.extend(glob(os.path.join(folder, f"*{ext}")))
         paths.extend(glob(os.path.join(folder, f"*{ext.upper()}")))
@@ -63,8 +62,8 @@ def build_worklist(
     model=None,
     backbone: str = config.BACKBONE,
     trained: bool = True,
-    save_overlays_to: Optional[str] = None,
-) -> List[WorklistItem]:
+    save_overlays_to: str | None = None,
+) -> list[WorklistItem]:
     """Run the model over every image in ``folder`` and return a sorted worklist.
 
     Sorted by triage priority then by descending P(malignant), so the single
@@ -80,12 +79,12 @@ def build_worklist(
 
 
 def worklist_from_paths(
-    paths: List[str],
+    paths: list[str],
     model=None,
     backbone: str = config.BACKBONE,
     trained: bool = True,
-    save_overlays_to: Optional[str] = None,
-) -> List[WorklistItem]:
+    save_overlays_to: str | None = None,
+) -> list[WorklistItem]:
     """Score an explicit list of image paths and return a sorted worklist.
 
     Shared by the CLI (folder scan) and the demo (uploaded files).
@@ -104,7 +103,7 @@ def worklist_from_paths(
         except Exception as exc:
             print(f"[naseej] skipping {path}: {exc}")
 
-    scored: List[WorklistItem] = []
+    scored: list[WorklistItem] = []
     if save_overlays_to:
         # Overlay path: per-image analyze() (Grad-CAM needs a backward pass).
         for path, image in loaded:
@@ -146,7 +145,7 @@ def _to_item(path: str, result: TriageResult) -> WorklistItem:
     )
 
 
-def write_worklist_csv(items: List[WorklistItem], csv_path: str) -> None:
+def write_worklist_csv(items: list[WorklistItem], csv_path: str) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(csv_path)), exist_ok=True)
     with open(csv_path, "w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=list(asdict(items[0]).keys()) if items else
@@ -156,7 +155,7 @@ def write_worklist_csv(items: List[WorklistItem], csv_path: str) -> None:
             writer.writerow(asdict(item))
 
 
-def print_worklist(items: List[WorklistItem]) -> None:
+def print_worklist(items: list[WorklistItem]) -> None:
     counts = {p: 0 for p in _PRIORITY_RANK}
     for it in items:
         counts[it.priority] += 1

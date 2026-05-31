@@ -15,8 +15,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import config
-
 if TYPE_CHECKING:  # avoid a hard import cycle at module load
     from src.inference import TriageResult
 
@@ -66,7 +64,7 @@ _STRINGS = {
 }
 
 
-def _line(strings: dict, result: "TriageResult") -> list[str]:
+def _line(strings: dict, result: TriageResult) -> list[str]:
     """Shared field rendering for one language.
 
     In binary mode ``result.label`` is a localised class ('Benign'/'Malignant').
@@ -90,7 +88,7 @@ def _line(strings: dict, result: "TriageResult") -> list[str]:
     ]
 
 
-def render_text(result: "TriageResult", lang: str = "en") -> str:
+def render_text(result: TriageResult, lang: str = "en") -> str:
     """Render a plain-text report in ``lang`` ('en' or 'ar')."""
     if lang not in _STRINGS:
         raise ValueError(f"Unsupported language {lang!r}; choose 'en' or 'ar'.")
@@ -107,12 +105,12 @@ def render_text(result: "TriageResult", lang: str = "en") -> str:
     return "\n".join(parts)
 
 
-def render_bilingual_text(result: "TriageResult") -> str:
+def render_bilingual_text(result: TriageResult) -> str:
     """English then Arabic, separated by a divider."""
     return render_text(result, "en") + "\n\n" + render_text(result, "ar")
 
 
-def render_html(result: "TriageResult", lang: str = "bilingual") -> str:
+def render_html(result: TriageResult, lang: str = "bilingual") -> str:
     """Render an HTML report. ``lang`` is 'en', 'ar', or 'bilingual'."""
     color = {"URGENT": "#b00020", "REVIEW": "#c77700", "ROUTINE": "#1b7a3d"}[result.priority]
 

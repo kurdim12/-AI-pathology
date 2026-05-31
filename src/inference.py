@@ -1,4 +1,4 @@
-"""
+r"""
 Inference for Naseej: probability -> triage priority -> auditable heatmap.
 
 This is where the pieces come together for a single slide image:
@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 import numpy as np
 import torch
@@ -35,7 +34,7 @@ PRIORITY_REVIEW = "REVIEW"
 PRIORITY_ROUTINE = "ROUTINE"
 
 
-def load_thresholds(path: str = config.THRESHOLDS_PATH) -> Tuple[float, float]:
+def load_thresholds(path: str = config.THRESHOLDS_PATH) -> tuple[float, float]:
     """Return ``(urgent_threshold, review_threshold)``.
 
     Prefers the calibrated values written by ``src.calibrate`` (so a freshly
@@ -60,8 +59,8 @@ class TriageResult:
     prob_malignant: float      # P(malignant) in [0, 1] (summed over malignant classes)
     confidence: float          # P(predicted class) in [0, 1]
     priority: str              # URGENT / REVIEW / ROUTINE
-    overlay: Optional[Image.Image] = None   # Grad-CAM blended on the slide
-    heatmap: Optional[Image.Image] = None   # raw colourised heatmap
+    overlay: Image.Image | None = None   # Grad-CAM blended on the slide
+    heatmap: Image.Image | None = None   # raw colourised heatmap
     trained: bool = True       # False -> running on un-fine-tuned weights
     is_malignant_class: bool = False        # predicted class is a malignant subtype
     uncertain: bool = False     # P(malignant) near 0.5 -> model is effectively guessing
@@ -72,7 +71,7 @@ class TriageResult:
 def load_model(
     checkpoint_path: str = config.BEST_MODEL_PATH,
     device: str = config.DEVICE,
-) -> Tuple[torch.nn.Module, str, bool]:
+) -> tuple[torch.nn.Module, str, bool]:
     """Load the fine-tuned model, or fall back to a pretrained backbone.
 
     The fallback keeps the demo runnable at a booth before any training has
@@ -148,8 +147,8 @@ def malignant_probability(probs: torch.Tensor) -> torch.Tensor:
 
 def triage_priority(
     prob_malignant: float,
-    urgent_threshold: Optional[float] = None,
-    review_threshold: Optional[float] = None,
+    urgent_threshold: float | None = None,
+    review_threshold: float | None = None,
 ) -> str:
     """Map P(malignant) to a triage priority.
 
@@ -184,7 +183,7 @@ def _colorize(cam: np.ndarray) -> np.ndarray:
 
 def overlay_heatmap(
     image: Image.Image, cam: np.ndarray, alpha: float = 0.45
-) -> Tuple[Image.Image, Image.Image]:
+) -> tuple[Image.Image, Image.Image]:
     """Blend a Grad-CAM heatmap over the original image.
 
     Returns ``(overlay, heatmap)`` both as PIL RGB images sized to the model
@@ -223,13 +222,13 @@ def _tta_probs(model: torch.nn.Module, tensor: torch.Tensor) -> torch.Tensor:
 
 def analyze(
     image: Image.Image,
-    model: Optional[torch.nn.Module] = None,
+    model: torch.nn.Module | None = None,
     backbone: str = config.BACKBONE,
     device: str = config.DEVICE,
     trained: bool = True,
     with_heatmap: bool = True,
     tta: bool = config.TTA_ENABLED,
-    thresholds: Optional[Tuple[float, float]] = None,
+    thresholds: tuple[float, float] | None = None,
     check_quality: bool = False,
 ) -> TriageResult:
     """Run the full pipeline on one PIL image and return a ``TriageResult``.
@@ -270,8 +269,8 @@ def analyze(
 
     tensor = eval_transforms()(image).unsqueeze(0).to(device)
 
-    overlay_img: Optional[Image.Image] = None
-    heatmap_img: Optional[Image.Image] = None
+    overlay_img: Image.Image | None = None
+    heatmap_img: Image.Image | None = None
 
     if with_heatmap:
         # Explain the most-probable malignant class (in binary that's simply the
@@ -340,12 +339,12 @@ def _result_from_probs(probs, prob_malignant, pred_idx, trained, thresholds,
 @torch.no_grad()
 def predict_batch(
     images,
-    model: Optional[torch.nn.Module] = None,
+    model: torch.nn.Module | None = None,
     backbone: str = config.BACKBONE,
     device: str = config.DEVICE,
     trained: bool = True,
     batch_size: int = config.BATCH_SIZE,
-    thresholds: Optional[Tuple[float, float]] = None,
+    thresholds: tuple[float, float] | None = None,
 ):
     """Triage many PIL images efficiently in batched forward passes.
 

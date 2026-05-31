@@ -16,8 +16,6 @@ looked, which is exactly the kind of accountability a triage tool needs.
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -36,8 +34,8 @@ class GradCAM:
     def __init__(self, model: nn.Module, target_layer: nn.Module):
         self.model = model
         self.target_layer = target_layer
-        self.activations: Optional[torch.Tensor] = None
-        self.gradients: Optional[torch.Tensor] = None
+        self.activations: torch.Tensor | None = None
+        self.gradients: torch.Tensor | None = None
 
         # In-place activations (e.g. EfficientNet's SiLU(inplace=True)) clash
         # with backward hooks — autograd refuses to track a view modified in
@@ -63,8 +61,8 @@ class GradCAM:
 
     # -- main -------------------------------------------------------------- #
     def __call__(
-        self, input_tensor: torch.Tensor, class_idx: Optional[int] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        self, input_tensor: torch.Tensor, class_idx: int | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute the class-activation heatmap(s).
 
         Args:
@@ -133,7 +131,7 @@ class GradCAM:
             module.inplace = True
         self._toggled_inplace = []
 
-    def __enter__(self) -> "GradCAM":
+    def __enter__(self) -> GradCAM:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:

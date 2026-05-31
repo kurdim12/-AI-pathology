@@ -308,5 +308,10 @@ def _fit_and_store_temperature(val_loader, device) -> dict | None:
     return report
 
 
-if __name__ == "__main__":
+def _cli() -> None:
+    """Console entry-point (naseej-train)."""
     main(_parse_args())
+
+
+if __name__ == "__main__":
+    _cli()
